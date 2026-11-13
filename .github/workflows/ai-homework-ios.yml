@@ -32,7 +32,7 @@ jobs:
 
   ipa:
     name: Build AIHomework.ipa (iPhone)
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 40
     permissions:
       contents: write   # публикация релиза ai-homework-latest для SideStore
@@ -41,6 +41,10 @@ jobs:
       BUILD: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
       - name: Show toolchain
         run: |
           xcodebuild -version
