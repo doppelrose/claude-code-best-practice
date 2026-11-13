@@ -66,14 +66,21 @@
 
 ### 3. Установка AI Homework (на iPhone)
 
-1. В SideStore откройте **Sources** → **+** и добавьте источник:
-   ```
-   https://github.com/doppelrose/claude-code-best-practice/releases/download/ai-homework-latest/source.json
-   ```
-2. В источнике **AI Homework** нажмите **Free** / **Install** (LocalDevVPN должен быть включён).
-3. Готово: иконка AI Homework появится на экране «Домой».
+Приложение собирается в облаке **Codemagic** (codemagic.io, бесплатно, вход через GitHub) по файлу
+`codemagic.yaml` в корне репозитория.
 
-Вместо источника можно скачать `AIHomework.ipa` со страницы релиза в Safari и в SideStore → **My Apps** → **+** выбрать файл.
+1. В Codemagic откройте последнюю сборку **AI Homework — iPhone .ipa** → блок **Artifacts** →
+   нажмите **AIHomework.ipa** и сохраните файл в «Файлы» (удобнее всего из Safari).
+2. Включите LocalDevVPN (**Connect**).
+3. SideStore → **My Apps** → **+** → выберите `AIHomework.ipa` из «Файлов».
+4. Готово: иконка AI Homework появится на экране «Домой».
+
+Новая версия: запустите сборку в Codemagic (**Start new build**, ветка `main`) и повторите шаги 1–3.
+SideStore установит её поверх старой, история заданий сохранится.
+
+Если на GitHub Actions доступен macOS-раннер, тот же `.ipa` публикуется в релизе `ai-homework-latest`
+вместе с источником SideStore (`…/releases/download/ai-homework-latest/source.json`) — тогда
+обновления приходят прямо в SideStore.
 
 ### Как продлевается подпись
 
