@@ -31,7 +31,9 @@ enum QuickAction: String, AppEnum, Sendable {
 /// приложение, система выполняет его в процессе приложения.
 struct SolveHomeworkIntent: AppIntent {
     static let title: LocalizedStringResource = "Solve homework"
-    static let description = IntentDescription("Opens AI Homework ready to capture a homework task.")
+    static var description: IntentDescription {
+        IntentDescription("Opens AI Homework ready to capture a homework task.")
+    }
     static let openAppWhenRun = true
 
     @Parameter(title: "Input method", default: .camera)
