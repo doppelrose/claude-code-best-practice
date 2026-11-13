@@ -1,7 +1,8 @@
 name: AI Homework iOS
 
-# Сборка приложения AI Homework и тесты движка решения.
-# Запускается только при изменениях в ai-homework-ios/ на рабочей ветке приложения.
+# Тесты движка решения и сборка установочного файла AIHomework.ipa для iPhone.
+# Mac пользователю не нужен: приложение собирается здесь, на облачном macOS-раннере GitHub,
+# а .ipa ставится на iPhone с Windows через Sideloadly (см. ai-homework-ios/README.md).
 on:
   push:
     branches:
@@ -29,36 +30,50 @@ jobs:
         working-directory: ai-homework-ios
         run: swift test
 
-  ios-build:
-    name: iOS app build (Simulator)
+  ipa:
+    name: Build AIHomework.ipa (iPhone)
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Show toolchain
         run: |
-          sw_vers
-          ls /Applications | grep -i xcode || true
           xcodebuild -version
-          xcodebuild -showsdks | grep -i ios || true
-      - name: Build for iOS Simulator
+          xcodebuild -showsdks | grep -i iphoneos || true
+      - name: Build for iPhone (unsigned archive)
         working-directory: ai-homework-ios
         run: |
           set -o pipefail
-          xcodebuild \
+          xcodebuild archive \
             -project AIHomework.xcodeproj \
             -scheme AIHomework \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee build.log | grep -E "error:|warning: unre|\*\* BUILD|^/.*(error|warning):" | sort -u | head -200
-      - name: Build summary
-        if: always()
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/AIHomework.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build.log | grep -E "error:|\*\* ARCHIVE|^/.*(error|warning):" | sort -u | head -200
+      - name: Errors summary
+        if: failure()
         working-directory: ai-homework-ios
         run: |
           echo "errors: $(grep -c ' error: ' build.log || true)"
           grep -E " error: " build.log | sort -u | head -150 || true
-          tail -5 build.log
+          tail -20 build.log
+      - name: Package .ipa
+        working-directory: ai-homework-ios
+        run: |
+          APP=build/AIHomework.xcarchive/Products/Applications/AIHomework.app
+          test -d "$APP"
+          ls "$APP/PlugIns" || echo "no extensions embedded"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry AIHomework.ipa Payload
+          ls -lh AIHomework.ipa
+      - name: Upload AIHomework.ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIHomework-ipa
+          path: ai-homework-ios/AIHomework.ipa
+          retention-days: 30
+          if-no-files-found: error
