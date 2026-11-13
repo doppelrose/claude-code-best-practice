@@ -1,0 +1,64 @@
+name: AI Homework iOS
+
+# Сборка приложения AI Homework и тесты движка решения.
+# Запускается только при изменениях в ai-homework-ios/ на рабочей ветке приложения.
+on:
+  push:
+    branches:
+      - 'claude/ai-homework-ios-app-araoag'
+    paths:
+      - 'ai-homework-ios/**'
+      - '.github/workflows/ai-homework-ios.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ai-homework-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  engine-tests:
+    name: Engine tests (Linux, Swift 6)
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        working-directory: ai-homework-ios
+        run: swift test
+
+  ios-build:
+    name: iOS app build (Simulator)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          sw_vers
+          ls /Applications | grep -i xcode || true
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i ios || true
+      - name: Build for iOS Simulator
+        working-directory: ai-homework-ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project AIHomework.xcodeproj \
+            -scheme AIHomework \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee build.log | grep -E "error:|warning: unre|\*\* BUILD|^/.*(error|warning):" | sort -u | head -200
+      - name: Build summary
+        if: always()
+        working-directory: ai-homework-ios
+        run: |
+          echo "errors: $(grep -c ' error: ' build.log || true)"
+          grep -E " error: " build.log | sort -u | head -150 || true
+          tail -5 build.log
