@@ -9,9 +9,9 @@ struct RootView: View {
     @State private var photoItem: PhotosPickerItem?
 
     var body: some View {
-        @Bindable var app = app
+        @Bindable var bindable = app
         ZStack {
-            NavigationStack(path: $app.path) {
+            NavigationStack(path: $bindable.path) {
                 HomeView(namespace: heroNamespace)
                     .navigationDestination(for: AppRoute.self) { route in
                         switch route {
@@ -31,14 +31,14 @@ struct RootView: View {
                     .zIndex(1)
             }
         }
-        .sheet(isPresented: $app.isSettingsPresented) {
+        .sheet(isPresented: $bindable.isSettingsPresented) {
             SettingsView()
         }
-        .fullScreenCover(item: $app.capture) { source in
+        .fullScreenCover(item: $bindable.capture) { source in
             captureView(source)
                 .ignoresSafeArea()
         }
-        .photosPicker(isPresented: $app.isPhotoPickerPresented, selection: $photoItem, matching: .images)
+        .photosPicker(isPresented: $bindable.isPhotoPickerPresented, selection: $photoItem, matching: .images)
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
             photoItem = nil
