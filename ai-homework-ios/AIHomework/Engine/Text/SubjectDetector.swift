@@ -31,6 +31,7 @@ struct SubjectDetector: Sendable {
             (["сила", "силу", "силы", "силой", "масс", "энерги", "работ", "заряд", "частот", "колебан", "волн", "ток", "проводник", "тело", "тела", "движ", "автомобил", "поезд", "нагрев", "падени"], 1.5),
             (["velocity", "acceleration", "pressure", "density", "voltage", "resistance", "momentum", "kinetic", "wavelength", "frequency"], 3),
             (["force", "mass", "energy", "power", "speed", "current", "charge", "heat"], 1.5),
+            (["convert", "переведите", "выразите"], 1),
         ],
         .chemistry: [
             (["молярн", "моль", "молекул", "реакци", "оксид", "кислот", "щёлоч", "щелоч", "основани", "соль", "соли", "раствор", "валентност", "окислен", "восстановит", "электролит", "катион", "анион", "изотоп"], 3),
@@ -73,7 +74,7 @@ struct SubjectDetector: Sendable {
         ],
         .informatics: [
             (["алгоритм", "программ", "двоичн", "восьмеричн", "шестнадцатеричн", "систем счислен", "системе счислен", "систему счислен", "бит", "байт", "кбайт", "мбайт", "массив", "цикл", "переменн", "логическ", "python", "паскал"], 3),
-            (["algorithm", "binary", "hexadecimal", "octal", "bit", "byte", "array", "loop", "boolean", "program"], 2.5),
+            (["algorithm", "binary", "hexadecimal", "octal", "bit", "bits", "byte", "bytes", "kilobyte", "megabyte", "gigabyte", "kb", "mb", "gb", "array", "loop", "boolean", "program"], 2.5),
         ],
     ]
 
