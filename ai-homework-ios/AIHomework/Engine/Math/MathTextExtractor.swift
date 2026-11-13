@@ -102,7 +102,21 @@ enum MathTextExtractor {
         return String(result)
     }
 
+    /// Обозначения единиц измерения: «м/с²», «кг», «km/h» — это не формулы.
+    private static let unitSymbols: Set<String> = Set(PhysicsData.units.flatMap { $0.symbols })
+
+    private static func isUnit(_ token: String) -> Bool {
+        // Однобуквенные латинские обозначения (m, s, V) оставляем переменными.
+        guard token.hasCyrillic || token.count >= 2 else { return false }
+        if unitSymbols.contains(token) { return true }
+        // Число, слитое с единицей: «150км», «5kg».
+        let unitPart = String(token.drop(while: { $0.isNumber || $0 == "," || $0 == "." }))
+        return unitPart.count < token.count && !unitPart.isEmpty && unitSymbols.contains(unitPart)
+            && (unitPart.hasCyrillic || unitPart.count >= 2)
+    }
+
     private static func isMathToken(_ token: String, russianContext: Bool) -> Bool {
+        if isUnit(token) { return false }
         let hasDigit = token.contains { $0.isNumber }
         let hasOperator = token.contains { operatorCharacters.contains($0) }
         let cyrillic = token.filter { $0.isCyrillic }
