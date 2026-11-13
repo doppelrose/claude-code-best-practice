@@ -75,7 +75,7 @@ struct SettingsView: View {
                         if let installed = await app.modelStore.importModel(from: url, l: l) {
                             Haptics.success()
                             if installed.kind == .textGenerator, installed.hasTokenizer {
-                                settings.data.activeCoreMLModelID = installed.id
+                                app.settings.data.activeCoreMLModelID = installed.id
                             }
                         } else {
                             Haptics.error()
