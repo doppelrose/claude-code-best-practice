@@ -137,23 +137,6 @@
         }
       }
     },
-    "Solve homework using %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solve homework using %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Решить задание: %@"
-          }
-        }
-      }
-    },
     "Scan homework": {
       "extractionState": "manual",
       "localizations": {
@@ -201,6 +184,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Открывает сканер документов для страницы с заданием."
+          }
+        }
+      }
+    },
+    "Solve homework using ${action}": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solve homework using ${action}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Решить задание: ${action}"
           }
         }
       }
