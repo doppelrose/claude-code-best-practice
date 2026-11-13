@@ -1,10 +1,17 @@
+import SwiftData
 import SwiftUI
 
 @main
 struct AIHomeworkApp: App {
+    @State private var app = AppModel()
+
     var body: some Scene {
         WindowGroup {
-            Text(MathSolver(lang: .ru).solve("2x + 5 = 11")?.answer ?? "—")
+            RootView()
+                .environment(app)
+                .environment(\.locale, app.settings.locale)
+                .preferredColorScheme(app.settings.colorScheme)
         }
+        .modelContainer(for: SolvedProblem.self)
     }
 }
