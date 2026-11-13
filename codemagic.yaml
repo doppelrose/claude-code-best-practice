@@ -1,0 +1,53 @@
+# Запасная облачная сборка AI Homework для iPhone на Codemagic (codemagic.io).
+# Нужна, если на GitHub Actions нет свободных macOS-раннеров. Бесплатный план — 500 минут macOS в месяц.
+# Результат — неподписанный AIHomework.ipa в артефактах сборки; подписывает его SideStore на iPhone.
+workflows:
+  ai-homework-ipa:
+    name: AI Homework — iPhone .ipa
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: latest
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'claude/ai-homework-ios-app-araoag'
+          include: true
+    when:
+      changeset:
+        includes:
+          - 'ai-homework-ios/'
+          - 'codemagic.yaml'
+    scripts:
+      - name: Engine tests
+        script: |
+          cd ai-homework-ios
+          swift test
+      - name: Build for iPhone (unsigned archive)
+        script: |
+          set -o pipefail
+          cd ai-homework-ios
+          xcodebuild -version
+          xcodebuild archive \
+            -project AIHomework.xcodeproj \
+            -scheme AIHomework \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/AIHomework.xcarchive \
+            MARKETING_VERSION="1.0.$BUILD_NUMBER" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build.log | grep -E "error:|\*\* ARCHIVE" | sort -u | head -200
+      - name: Package .ipa
+        script: |
+          cd ai-homework-ios
+          APP=build/AIHomework.xcarchive/Products/Applications/AIHomework.app
+          test -d "$APP"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry AIHomework.ipa Payload
+          ls -lh AIHomework.ipa
+    artifacts:
+      - ai-homework-ios/AIHomework.ipa
+      - ai-homework-ios/build.log
