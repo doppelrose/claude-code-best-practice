@@ -16,7 +16,7 @@ struct TextToolsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label(l("Анализ текста на устройстве", "On-device text analysis"), systemImage: "text.magnifyingglass")
-                .font(.headline)
+                .font(.cardTitle)
 
             summaryRow
 
@@ -53,13 +53,13 @@ struct TextToolsSection: View {
 
     private func statChip(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(title).font(.caption2).foregroundStyle(Palette.inkSubtle)
             Text(value).font(.subheadline.weight(.semibold))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.05)))
+        .insetSurface()
     }
 
     private var spellingBlock: some View {
@@ -71,18 +71,18 @@ struct TextToolsSection: View {
                     systemImage: "checkmark.circle.fill"
                 )
                 .font(.footnote)
-                .foregroundStyle(.green)
+                .foregroundStyle(Palette.success)
             } else {
                 ForEach(analysis.misspellings) { item in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(item.word)
                             .font(.callout.weight(.medium))
-                            .underline(true, pattern: .dot, color: .red)
+                            .underline(true, pattern: .dot, color: Palette.accentHover)
                         if !item.suggestions.isEmpty {
-                            Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
+                            Image(systemName: "arrow.right").font(.caption2).foregroundStyle(Palette.inkTertiary)
                             Text(item.suggestions.joined(separator: ", "))
                                 .font(.callout)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(Palette.inkMuted)
                         }
                     }
                 }
@@ -92,7 +92,7 @@ struct TextToolsSection: View {
                         "This is a system dictionary check: it finds typos but does not verify punctuation or grammar.")
                 )
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.inkSubtle)
             }
         }
     }
@@ -105,12 +105,12 @@ struct TextToolsSection: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(word.word).font(.callout.weight(.medium))
                     if let lemma = word.lemma {
-                        Text("← " + lemma).font(.caption).foregroundStyle(.secondary)
+                        Text("← " + lemma).font(.caption).foregroundStyle(Palette.inkSubtle)
                     }
                     Spacer()
                     Text(word.partOfSpeech)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Palette.inkSubtle)
                 }
             }
             if analysis.words.count > 12 {
@@ -129,7 +129,7 @@ struct TextToolsSection: View {
                     "Tagging is done by the system NaturalLanguage analyzer and may be wrong in tricky cases.")
             )
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Palette.inkSubtle)
         }
     }
 
@@ -140,11 +140,11 @@ struct TextToolsSection: View {
                 ForEach(analysis.entities) { entity in
                     HStack(spacing: 5) {
                         Text(entity.text).font(.footnote.weight(.medium))
-                        Text(entity.kind).font(.caption2).foregroundStyle(.secondary)
+                        Text(entity.kind).font(.caption2).foregroundStyle(Palette.inkSubtle)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+                    .glassCapsule()
                 }
             }
         }
