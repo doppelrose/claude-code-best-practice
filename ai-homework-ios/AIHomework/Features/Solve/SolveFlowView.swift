@@ -107,7 +107,7 @@ struct SolveFlowView: View {
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
         case .solving:
-            SolvingStage(l: l)
+            SolvingStage(l: l, phase: model.solvingPhase)
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
         case .result:
             ResultStage(
@@ -269,48 +269,85 @@ private struct RecognizingStage: View {
 
 private struct SolvingStage: View {
     let l: L10n
-    @State private var statusIndex = 0
+    let phase: SolvePhase?
 
-    private var statuses: [String] {
-        [
-            l("Определяю тип задания…", "Identifying the task type…"),
-            l("Подбираю способ решения…", "Choosing a method…"),
-            l("Вычисляю и проверяю ответ…", "Computing and checking the answer…"),
-        ]
-    }
+    /// Пройденные этапы — показываем путь задания: диспетчер → точный решатель → нейросеть.
+    @State private var history: [SolvePhase] = []
+    @State private var elapsed = 0
 
     var body: some View {
         VStack(spacing: 28) {
             Spacer(minLength: 0)
-            AIOrb(size: 150, isActive: true, symbol: "wand.and.stars")
-            VStack(spacing: 8) {
+            AIOrb(size: 132, isActive: true, symbol: "wand.and.stars")
+            VStack(spacing: 6) {
                 Text(l("Решаю задание", "Solving the task"))
-                    .font(.title2.weight(.bold))
-                Text(statuses[statusIndex % statuses.count])
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.inkSubtle)
-                    .contentTransition(.opacity)
-                    .id(statusIndex)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .font(.headlineTitle)
+                    .tracking(-0.3)
+                    .foregroundStyle(Palette.ink)
+                Text(l("\(elapsed) с", "\(elapsed) s"))
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(Palette.inkTertiary)
+                    .contentTransition(.numericText())
             }
-            VStack(alignment: .leading, spacing: 12) {
-                ShimmerBar(width: 120)
-                ShimmerBar()
-                ShimmerBar()
-                ShimmerBar(width: 200)
+            VStack(alignment: .leading, spacing: 14) {
+                if history.isEmpty {
+                    row(title: l("Готовлю задание…", "Preparing the task…"), isCurrent: true)
+                } else {
+                    ForEach(Array(history.enumerated()), id: \.offset) { index, item in
+                        row(title: title(item), isCurrent: index == history.count - 1)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
             }
-            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
             .glassCard()
-            .padding(.horizontal, 36)
+            .padding(.horizontal, 28)
             Spacer(minLength: 0)
             Spacer(minLength: 0)
         }
+        .onAppear { record(phase) }
+        .onChange(of: phase) { _, newValue in record(newValue) }
         .task {
-            // Смена подписи — пока идёт работа.
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(900))
-                withAnimation(Theme.spring) { statusIndex += 1 }
+                try? await Task.sleep(for: .seconds(1))
+                withAnimation(Theme.gentle) { elapsed += 1 }
             }
+        }
+    }
+
+    private func record(_ phase: SolvePhase?) {
+        guard let phase, history.last != phase else { return }
+        withAnimation(Theme.gentle) { history.append(phase) }
+    }
+
+    private func title(_ phase: SolvePhase) -> String {
+        switch phase {
+        case .routing(let model):
+            return l("Нейросеть «\(model)» выбирает, кто решит", "“\(model)” decides who solves it")
+        case .exact:
+            return l("Точный решатель на iPhone", "Exact on-device solver")
+        case .model(let name):
+            return l("Решает нейросеть «\(name)»", "Solving with “\(name)”")
+        }
+    }
+
+    private func row(title: String, isCurrent: Bool) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                if isCurrent {
+                    ProgressView().controlSize(.small).tint(Palette.accentHover)
+                } else {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Palette.inkTertiary)
+                }
+            }
+            .frame(width: 20, height: 20)
+            Text(title)
+                .font(.subheadline.weight(isCurrent ? .medium : .regular))
+                .foregroundStyle(isCurrent ? Palette.ink : Palette.inkSubtle)
+                .lineLimit(2)
         }
     }
 }
