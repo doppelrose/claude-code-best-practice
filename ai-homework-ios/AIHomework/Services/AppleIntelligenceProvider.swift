@@ -78,7 +78,7 @@ struct AppleIntelligenceProvider: LanguageModelProvider {
                 "The system language model was introduced in iOS 26 and runs on devices with Apple Intelligence."))
     }
 
-    func generate(instructions: String, prompt: String, maxTokens: Int) async throws -> String {
+    func generate(instructions: String, prompt: String, image: Data?, maxTokens: Int) async throws -> String {
         #if canImport(FoundationModels)
             if #available(iOS 26.0, *) {
                 guard case .available = SystemLanguageModel.default.availability else {
