@@ -7,7 +7,7 @@ struct SolutionContentView: View {
     let analysis: TextAnalysis?
     let problemText: String
     let l: L10n
-    /// Открыть экран локальных моделей (для нерешённых заданий).
+    /// Открыть настройки нейросети (для нерешённых заданий).
     var onOpenModels: (() -> Void)?
     var onCopied: ((String) -> Void)?
 
@@ -144,7 +144,7 @@ struct SolutionContentView: View {
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
                 if let onOpenModels {
-                    GlassButton(title: l("Локальные модели", "On-device models"), systemImage: "cpu", action: onOpenModels)
+                    GlassButton(title: l("Настроить нейросеть", "Set up the AI model"), systemImage: "gearshape", action: onOpenModels)
                 }
             }
             .padding(20)
