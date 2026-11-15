@@ -72,7 +72,7 @@ struct HistoryView: View {
                                     problem.isFavorite ? l("Убрать", "Unfavorite") : l("В избранное", "Favorite"),
                                     systemImage: problem.isFavorite ? "bookmark.slash" : "bookmark")
                             }
-                            .tint(.yellow)
+                            .tint(Palette.accent)
                         }
                         .contextMenu {
                             Button {
@@ -146,11 +146,11 @@ struct HistoryView: View {
     private var subjectChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                chip(title: l("Все предметы", "All subjects"), isSelected: subjectFilter == nil, colors: Theme.brand) {
+                chip(title: l("Все предметы", "All subjects"), isSelected: subjectFilter == nil) {
                     subjectFilter = nil
                 }
                 ForEach(usedSubjects) { subject in
-                    chip(title: subject.title(l), isSelected: subjectFilter == subject, colors: subject.palette) {
+                    chip(title: subject.title(l), isSelected: subjectFilter == subject) {
                         subjectFilter = subjectFilter == subject ? nil : subject
                     }
                 }
@@ -159,22 +159,11 @@ struct HistoryView: View {
         }
     }
 
-    private func chip(title: String, isSelected: Bool, colors: [Color], action: @escaping () -> Void) -> some View {
-        Button {
+    private func chip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        FilterChip(title: title, isSelected: isSelected) {
             Haptics.selection()
             withAnimation(Theme.spring, action)
-        } label: {
-            Text(title)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background {
-                    Capsule(style: .continuous)
-                        .fill(isSelected ? AnyShapeStyle(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing)) : AnyShapeStyle(Color.primary.opacity(0.07)))
-                }
         }
-        .buttonStyle(.pressable)
     }
 
     private func dayTitle(_ day: Date) -> String {
@@ -216,21 +205,21 @@ struct ProblemRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(problem.problemText)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Palette.ink)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 Text(problem.isSolved ? problem.answer : l("Не решено", "Not solved"))
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(problem.isSolved ? problem.subject.tint : Color.secondary)
+                    .font(.system(.footnote, design: .monospaced).weight(.medium))
+                    .foregroundStyle(problem.isSolved ? Palette.inkMuted : Palette.inkTertiary)
                     .lineLimit(1)
                 Text(problem.createdAt.formatted(date: .omitted, time: .shortened))
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Palette.inkTertiary)
             }
             Spacer(minLength: 0)
             if problem.isFavorite {
                 Image(systemName: "bookmark.fill")
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(Palette.inkSubtle)
                     .font(.footnote)
             }
         }
