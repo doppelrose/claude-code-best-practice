@@ -45,6 +45,8 @@ final class SolveViewModel: Identifiable {
     private var workTask: Task<Void, Never>?
     private var detectionTask: Task<Void, Never>?
     private var shouldAutoSolve = false
+    /// Контекст SwiftData — нужен, чтобы сразу после распознавания решить и сохранить задание.
+    private var modelContext: ModelContext?
 
     var l: L10n { settings.l }
     var hasImage: Bool { image != nil }
@@ -68,6 +70,10 @@ final class SolveViewModel: Identifiable {
                 isSubjectManual = true
             }
         }
+    }
+
+    func attach(_ context: ModelContext) {
+        modelContext = context
     }
 
     /// Нужно ли запустить решение сразу после появления экрана (для введённого текста).
@@ -149,11 +155,28 @@ final class SolveViewModel: Identifiable {
                 subjectGuess = guess
                 subject = guess.subject
                 Haptics.success()
-                setStage(.review)
-            } catch let error as OCRError {
-                fail(error.message(l))
+                // Выделили область — решение начинается сразу; исправить текст можно потом («Изменить»).
+                if let modelContext {
+                    solve(context: modelContext)
+                } else {
+                    setStage(.review)
+                }
             } catch {
-                fail(OCRError.failed(error.localizedDescription).message(l))
+                guard !Task.isCancelled else { return }
+                // Текста не нашлось (чертёж, рукопись) — нейросеть по API прочитает картинку сама.
+                if coordinator.canSolveImagesRemotely, let modelContext {
+                    text = ""
+                    recognizedLines = []
+                    ocrConfidence = nil
+                    subject = isSubjectManual ? subject : .other
+                    solve(context: modelContext)
+                    return
+                }
+                if let ocrError = error as? OCRError {
+                    fail(ocrError.message(l))
+                } else {
+                    fail(OCRError.failed(error.localizedDescription).message(l))
+                }
             }
         }
     }
@@ -211,7 +234,12 @@ final class SolveViewModel: Identifiable {
     // MARK: - Solving
 
     var canSolve: Bool {
-        !text.trimmed.isEmpty
+        !text.trimmed.isEmpty || (imageForSolving != nil && coordinator.canSolveImagesRemotely)
+    }
+
+    /// Фрагмент, который увидит нейросеть: выделенная область или всё фото.
+    private var imageForSolving: UIImage? {
+        recognizedImage ?? image
     }
 
     func solve(context: ModelContext) {
@@ -220,7 +248,8 @@ final class SolveViewModel: Identifiable {
         Haptics.press()
         setStage(.solving)
         let problem = text.trimmed
-        let needsDetection = !isSubjectManual && subjectGuess == nil
+        let solvingImage = imageForSolving
+        let needsDetection = !isSubjectManual && subjectGuess == nil && !problem.isEmpty
         detectionTask?.cancel()
 
         workTask?.cancel()
@@ -234,7 +263,7 @@ final class SolveViewModel: Identifiable {
                 subject = guess.subject
             }
             let chosenSubject = subject
-            let outcome = await coordinator.solve(text: problem, subject: chosenSubject)
+            let outcome = await coordinator.solve(text: problem, subject: chosenSubject, image: solvingImage)
             guard !Task.isCancelled else { return }
             let elapsed = Date().timeIntervalSince(started)
             if elapsed < 0.8 { try? await Task.sleep(for: .milliseconds(Int((0.8 - elapsed) * 1000))) }
@@ -242,7 +271,8 @@ final class SolveViewModel: Identifiable {
 
             solution = outcome.solution
             analysis = outcome.analysis
-            await save(problem: problem, solution: outcome.solution, context: context)
+            let savedText = problem.isEmpty ? l("Задание на изображении", "Task in the image") : problem
+            await save(problem: savedText, solution: outcome.solution, context: context)
             if outcome.solution.isSolved {
                 Haptics.success()
             } else {
