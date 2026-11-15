@@ -204,6 +204,57 @@
           }
         }
       }
+    },
+    "Solve a screenshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solve a screenshot"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Решить скриншот"
+          }
+        }
+      }
+    },
+    "Opens AI Homework with an image so you can circle the task. Put it after “Take Screenshot” in a shortcut and assign the shortcut to the Action Button.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens AI Homework with an image so you can circle the task. Put it after “Take Screenshot” in a shortcut and assign the shortcut to the Action Button."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывает AI Homework с изображением, чтобы обвести задание. Поставьте после «Сделать снимок экрана» в команде и назначьте команду на кнопку действия."
+          }
+        }
+      }
+    },
+    "Image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изображение"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
