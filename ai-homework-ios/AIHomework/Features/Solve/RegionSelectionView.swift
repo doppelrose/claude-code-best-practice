@@ -33,17 +33,16 @@ struct RegionSelectionView: View {
                         path.addRoundedRect(in: frame, cornerSize: CGSize(width: 18, height: 18))
                         path.addRoundedRect(in: rect, cornerSize: CGSize(width: 12, height: 12))
                     }
-                    .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
+                    .fill(Color.black.opacity(0.6), style: FillStyle(eoFill: true))
                     .allowsHitTesting(false)
 
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(
-                            AngularGradient(colors: Theme.orb, center: .center),
-                            style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [12, 7], dashPhase: dashPhase)
+                            Palette.accentHover,
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [10, 6], dashPhase: dashPhase)
                         )
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
-                        .shadow(color: Theme.brand[1].opacity(0.7), radius: 8)
                         .allowsHitTesting(false)
 
                     ForEach(Corner.allCases) { corner in
@@ -53,14 +52,14 @@ struct RegionSelectionView: View {
 
                 // След пальца.
                 if lasso.count > 1 {
-                    LassoShape(points: lasso)
-                        .stroke(
-                            LinearGradient(colors: Theme.orb, startPoint: .topLeading, endPoint: .bottomTrailing),
-                            style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
-                        )
-                        .shadow(color: Theme.brand[1].opacity(0.9), radius: 10)
-                        .shadow(color: Color.white.opacity(0.6), radius: 2)
-                        .allowsHitTesting(false)
+                    // Светлая подложка держит контраст на любом скриншоте, сверху — акцентная линия.
+                    ZStack {
+                        LassoShape(points: lasso)
+                            .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
+                        LassoShape(points: lasso)
+                            .stroke(Palette.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    }
+                    .allowsHitTesting(false)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -155,9 +154,8 @@ struct RegionSelectionView: View {
     private func handle(_ corner: Corner, rect: CGRect, frame: CGRect) -> some View {
         Circle()
             .fill(Color.white)
-            .frame(width: 22, height: 22)
-            .overlay { Circle().strokeBorder(Theme.brand[1], lineWidth: 3) }
-            .shadow(color: Color.black.opacity(0.3), radius: 4, y: 2)
+            .frame(width: 18, height: 18)
+            .overlay { Circle().strokeBorder(Palette.accent, lineWidth: 2) }
             .frame(width: 44, height: 44)
             .contentShape(Circle())
             .position(position(of: corner, in: rect))
