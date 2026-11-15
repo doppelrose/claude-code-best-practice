@@ -23,5 +23,5 @@ struct HomeworkShortcuts: AppShortcutsProvider {
             systemImageName: "doc.viewfinder")
     }
 
-    static var shortcutTileColor: ShortcutTileColor { .purple }
+    static var shortcutTileColor: ShortcutTileColor { .navy }
 }
