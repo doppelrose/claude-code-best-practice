@@ -1,6 +1,5 @@
 import AppIntents
 import UIKit
-import UniformTypeIdentifiers
 
 /// «Решить скриншот»: открывает AI Homework с изображением, чтобы сразу обвести задание.
 ///
@@ -17,7 +16,7 @@ struct SolveScreenshotIntent: AppIntent {
 
     /// Автоматически связывается с результатом предыдущего действия («Сделать снимок экрана»),
     /// чтобы не приходилось выбирать переменную вручную.
-    @Parameter(title: "Image", supportedContentTypes: [.image], inputConnectionBehavior: .connectToPreviousIntentResult)
+    @Parameter(title: "Image", inputConnectionBehavior: .connectToPreviousIntentResult)
     var image: IntentFile
 
     init() {}
