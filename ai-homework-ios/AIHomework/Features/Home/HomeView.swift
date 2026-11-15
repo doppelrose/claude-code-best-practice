@@ -49,17 +49,14 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(greeting)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 6) {
-                    Text("AI Homework")
-                        .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                    Image(systemName: "sparkles")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(Theme.brandGradient)
-                }
+                    .foregroundStyle(Palette.inkSubtle)
+                Text("AI Homework")
+                    .font(.displayLarge)
+                    .tracking(-0.8)
+                    .foregroundStyle(Palette.ink)
             }
             Spacer()
-            GlassIconButton(systemImage: "gearshape.fill", size: 46, accessibilityLabel: l("Настройки", "Settings")) {
+            GlassIconButton(systemImage: "gearshape", size: 42, accessibilityLabel: l("Настройки", "Settings")) {
                 Haptics.tap()
                 app.isSettingsPresented = true
             }
@@ -83,15 +80,16 @@ struct HomeView: View {
                 }
                 VStack(spacing: 6) {
                     Text(l("Решить задание", "Solve a task"))
-                        .font(.system(.title, design: .rounded).weight(.bold))
-                        .foregroundStyle(.primary)
+                        .font(.displayMedium)
+                        .tracking(-0.5)
+                        .foregroundStyle(Palette.ink)
                     Text(
                         l(
                             "Сфотографируйте задание — решение и объяснение появятся за секунды.",
                             "Snap a task — the solution and explanation appear in seconds.")
                     )
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.inkSubtle)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -99,20 +97,19 @@ struct HomeView: View {
                     Image(systemName: "camera.fill")
                     Text(l("Открыть камеру", "Open camera"))
                 }
-                .font(.headline)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 13)
+                .font(.buttonLabel)
+                .foregroundStyle(Palette.onAccent)
+                .padding(.horizontal, 22)
+                .frame(height: 44)
                 .background {
-                    Capsule(style: .continuous)
-                        .fill(Theme.brandGradient)
-                        .shadow(color: Theme.brand[1].opacity(0.45), radius: 14, y: 7)
+                    RoundedRectangle(cornerRadius: Theme.smallRadius, style: .continuous)
+                        .fill(Palette.accent)
                 }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 28)
             .padding(.horizontal, 20)
-            .glassCard(cornerRadius: 34, interactive: true)
+            .glassCard(cornerRadius: Theme.panelRadius, interactive: true)
         }
         .buttonStyle(PressableButtonStyle(scale: 0.98))
         .accessibilityLabel(l("Решить задание: открыть камеру", "Solve a task: open camera"))
@@ -125,19 +122,19 @@ struct HomeView: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 QuickActionTile(
                     title: l("Из галереи", "From photos"), subtitle: l("Фото или скриншот", "Photo or screenshot"),
-                    systemImage: "photo.on.rectangle.angled", colors: [Color(hex: 0x0EA5E9), Color(hex: 0x6366F1)]
+                    systemImage: "photo.on.rectangle.angled"
                 ) { app.openPhotos() }
                 QuickActionTile(
                     title: l("Вставить", "Paste"), subtitle: l("Из буфера обмена", "From clipboard"),
-                    systemImage: "doc.on.clipboard.fill", colors: [Color(hex: 0xF59E0B), Color(hex: 0xEF4444)]
+                    systemImage: "doc.on.clipboard"
                 ) { app.pasteFromClipboard() }
                 QuickActionTile(
                     title: l("Сканер", "Scanner"), subtitle: l("Страница учебника", "Textbook page"),
-                    systemImage: "doc.viewfinder.fill", colors: [Color(hex: 0x10B981), Color(hex: 0x14B8A6)]
+                    systemImage: "doc.viewfinder"
                 ) { app.openScanner() }
                 QuickActionTile(
                     title: l("Ввести", "Type"), subtitle: l("Условие текстом", "Task as text"),
-                    systemImage: "keyboard.fill", colors: [Color(hex: 0xA855F7), Color(hex: 0xEC4899)]
+                    systemImage: "keyboard"
                 ) { app.typeTask() }
             }
         }
@@ -180,19 +177,19 @@ struct HomeView: View {
                             SubjectIcon(subject: subject, size: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(subject.title(l))
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.primary)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(Palette.ink)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
                                 Text(subject.hasLocalEngine ? l("Точный решатель", "Exact solver") : l("Через нейросеть", "Via AI model"))
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Palette.inkSubtle)
                                     .lineLimit(1)
                             }
                             Spacer(minLength: 0)
                         }
                         .padding(12)
-                        .glassCard(cornerRadius: 20)
+                        .glassCard()
                     }
                     .buttonStyle(.pressable)
                 }
@@ -205,24 +202,20 @@ struct HomeView: View {
     private var historyCard: some View {
         NavigationLink(value: AppRoute.history) {
             HStack(spacing: 14) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 52, height: 52)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.brandGradient))
+                CardIcon(systemImage: "clock.arrow.circlepath")
                 VStack(alignment: .leading, spacing: 3) {
                     Text(l("История заданий", "Task history"))
-                        .font(.headline)
-                        .foregroundStyle(.primary)
+                        .font(.cardTitle)
+                        .foregroundStyle(Palette.ink)
                     let favorites = problems.filter { $0.isFavorite }.count
                     Text(l("Решено: \(problems.count) · В избранном: \(favorites)", "Solved: \(problems.count) · Favorites: \(favorites)"))
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Palette.inkSubtle)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.tertiary)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.inkTertiary)
             }
             .padding(16)
             .glassCard()
@@ -236,25 +229,21 @@ struct HomeView: View {
             app.isSettingsPresented = true
         } label: {
             HStack(spacing: 14) {
-                Image(systemName: "button.programmable")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.orange)
-                    .frame(width: 52, height: 52)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.orange.opacity(0.15)))
+                CardIcon(systemImage: "button.programmable")
                 VStack(alignment: .leading, spacing: 3) {
                     Text(l("Кнопка действия", "Action Button"))
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(l("Одно нажатие — и камера уже готова снимать задание", "One press and the camera is ready for your task"))
+                        .font(.cardTitle)
+                        .foregroundStyle(Palette.ink)
+                    Text(l("Одно нажатие — скриншот, обведите задание, решение готово", "One press — screenshot, circle the task, get the solution"))
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Palette.inkSubtle)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.tertiary)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.inkTertiary)
             }
             .padding(16)
             .glassCard()
@@ -264,14 +253,14 @@ struct HomeView: View {
 
     private var privacyFooter: some View {
         HStack(spacing: 8) {
-            Image(systemName: "lock.shield.fill")
+            Image(systemName: "lock.shield")
             Text(
                 l(
                     "Точные задачи решаются прямо на iPhone. Остальное — в вашей нейросети по API; ключ хранится в Связке ключей.",
                     "Exact tasks are solved right on the iPhone. Everything else goes to your AI model via API; the key stays in the Keychain."))
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Palette.inkTertiary)
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
     }
@@ -282,27 +271,20 @@ private struct QuickActionTile: View {
     let title: String
     let subtitle: String
     let systemImage: String
-    let colors: [Color]
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)))
+                CardIcon(systemImage: systemImage, size: 38)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline).foregroundStyle(.primary)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(title).font(.cardTitle).foregroundStyle(Palette.ink)
+                    Text(subtitle).font(.caption).foregroundStyle(Palette.inkSubtle).lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
-            .glassCard(cornerRadius: 22, interactive: true)
+            .glassCard()
         }
         .buttonStyle(.pressable)
     }
@@ -319,25 +301,25 @@ private struct RecentCard: View {
                 SubjectIcon(subject: problem.subject, size: 30)
                 Spacer()
                 if problem.isFavorite {
-                    Image(systemName: "bookmark.fill").foregroundStyle(.yellow).font(.caption)
+                    Image(systemName: "bookmark.fill").foregroundStyle(Palette.inkSubtle).font(.caption)
                 }
                 Image(systemName: problem.isSolved ? "checkmark.circle.fill" : "questionmark.circle")
-                    .foregroundStyle(problem.isSolved ? Color.green : Color.secondary)
+                    .foregroundStyle(problem.isSolved ? Palette.success : Palette.inkTertiary)
                     .font(.caption)
             }
             Text(problem.problemText)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
+                .foregroundStyle(Palette.ink)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
             Text(problem.isSolved ? problem.answer : l("Не решено", "Not solved"))
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(problem.subject.tint)
+                .font(.system(.footnote, design: .monospaced).weight(.medium))
+                .foregroundStyle(Palette.inkMuted)
                 .lineLimit(1)
         }
         .padding(14)
         .frame(width: 210, height: 150, alignment: .topLeading)
-        .glassCard(cornerRadius: 22)
+        .glassCard()
     }
 }
