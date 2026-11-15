@@ -57,11 +57,11 @@ struct SubjectView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.green)
         } else if hasModel {
-            Label(l("Ответы локальной модели", "On-device model answers"), systemImage: "sparkles")
+            Label(l("Ответы нейросети", "AI model answers"), systemImage: "sparkles")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.purple)
         } else {
-            Label(l("Нужна локальная модель", "Needs an on-device model"), systemImage: "exclamationmark.circle.fill")
+            Label(l("Нужна нейросеть", "Needs an AI model"), systemImage: "exclamationmark.circle.fill")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.orange)
         }
@@ -98,7 +98,7 @@ struct SubjectView: View {
                 Button {
                     app.isSettingsPresented = true
                 } label: {
-                    Label(l("Подключить локальную модель", "Connect an on-device model"), systemImage: "cpu")
+                    Label(l("Подключить нейросеть", "Connect an AI model"), systemImage: "gearshape")
                         .font(.footnote.weight(.semibold))
                 }
                 .buttonStyle(.pressable)
