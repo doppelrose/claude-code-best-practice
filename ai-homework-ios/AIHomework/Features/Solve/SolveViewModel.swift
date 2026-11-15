@@ -38,6 +38,8 @@ final class SolveViewModel: Identifiable {
     private(set) var solution: Solution?
     private(set) var analysis: TextAnalysis?
     private(set) var record: SolvedProblem?
+    /// Текущий этап решения — диспетчер, точный решатель или нейросеть.
+    private(set) var solvingPhase: SolvePhase?
     var errorMessage: String?
 
     private let settings: AppSettings
@@ -246,6 +248,7 @@ final class SolveViewModel: Identifiable {
         guard canSolve else { return }
         errorMessage = nil
         Haptics.press()
+        solvingPhase = nil
         setStage(.solving)
         let problem = text.trimmed
         let solvingImage = imageForSolving
@@ -263,8 +266,14 @@ final class SolveViewModel: Identifiable {
                 subject = guess.subject
             }
             let chosenSubject = subject
-            let outcome = await coordinator.solve(text: problem, subject: chosenSubject, image: solvingImage)
+            let outcome = await coordinator.solve(
+                text: problem, subject: chosenSubject, subjectLocked: isSubjectManual, image: solvingImage
+            ) { [weak self] phase in
+                guard let self, !Task.isCancelled else { return }
+                withAnimation(Theme.gentle) { self.solvingPhase = phase }
+            }
             guard !Task.isCancelled else { return }
+            if !isSubjectManual { subject = outcome.subject }
             let elapsed = Date().timeIntervalSince(started)
             if elapsed < 0.8 { try? await Task.sleep(for: .milliseconds(Int((0.8 - elapsed) * 1000))) }
             guard !Task.isCancelled else { return }
