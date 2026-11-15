@@ -42,7 +42,7 @@ enum MathNormalizer {
         ("<=", "≤"), (">=", "≥"), ("=<", "≤"), ("=>", "≥"), ("!=", "≠"), ("<>", "≠"), ("==", "="),
         ("⩽", "≤"), ("⩾", "≥"), ("≦", "≤"), ("≧", "≥"),
         ("**", "^"),
-        ("×", "*"), ("·", "*"), ("⋅", "*"), ("∙", "*"), ("•", "*"), ("✕", "*"), ("∗", "*"),
+        ("·", "*"), ("⋅", "*"), ("∙", "*"), ("•", "*"), ("✕", "*"), ("∗", "*"),
         ("÷", "/"), ("∕", "/"), ("⁄", "/"),
         ("−", "-"), ("–", "-"), ("—", "-"), ("‒", "-"), ("﹣", "-"), ("－", "-"),
         ("＋", "+"), ("＝", "="),
@@ -58,9 +58,40 @@ enum MathNormalizer {
     ]
 
     static func normalize(_ text: String) -> String {
-        var result = text
+        var result = resolveTimesSign(text)
         for (from, to) in replacements {
             result = result.replacingOccurrences(of: from, with: to)
+        }
+        return result
+    }
+
+    /// Распознавание текста часто читает латинскую `x` как знак умножения `×`.
+    /// «×» считается умножением, только если стоит между двумя операндами (`2 × 3`, `a × (b + 1)`);
+    /// иначе это переменная: `×^2 − 5×`, `×² + 1`, `3×`.
+    static func resolveTimesSign(_ text: String) -> String {
+        guard text.contains("×") else { return text }
+        let chars = Array(text)
+        var result = ""
+        for (index, c) in chars.enumerated() {
+            guard c == "×" else {
+                result.append(c)
+                continue
+            }
+            var left = index - 1
+            while left >= 0, chars[left] == " " { left -= 1 }
+            var right = index + 1
+            while right < chars.count, chars[right] == " " { right += 1 }
+            let previous: Character? = left >= 0 ? chars[left] : nil
+            let next: Character? = right < chars.count ? chars[right] : nil
+            func isOperandEnd(_ ch: Character?) -> Bool {
+                guard let ch else { return false }
+                return ch.isNumber || ch.isLetter || ch == ")" || ch == "²" || ch == "³"
+            }
+            func isOperandStart(_ ch: Character?) -> Bool {
+                guard let ch else { return false }
+                return ch.isNumber || ch.isLetter || ch == "(" || ch == "√"
+            }
+            result.append(isOperandEnd(previous) && isOperandStart(next) ? "*" : "x")
         }
         return result
     }
