@@ -9,6 +9,8 @@ struct RegionSelectionView: View {
     let image: UIImage
     @Binding var selection: CGRect?
     let l: L10n
+    /// Вызывается, когда пользователь закончил обводить область пальцем.
+    var onSelectionFinished: (@MainActor () -> Void)?
 
     @State private var lasso: [CGPoint] = []
     @State private var dashPhase: CGFloat = 0
@@ -123,6 +125,13 @@ struct RegionSelectionView: View {
                 Haptics.success()
                 withAnimation(Theme.bouncy) {
                     selection = normalizedRect(for: clipped, in: frame)
+                }
+                if let onSelectionFinished {
+                    // Короткая пауза, чтобы было видно выделенную рамку.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        onSelectionFinished()
+                    }
                 }
             }
     }
