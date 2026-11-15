@@ -107,7 +107,10 @@ enum SolutionEngine: String, Codable, Sendable {
     case informatics
     case languageTools
     case appleIntelligence
+    /// Устаревшее: пользовательские модели Core ML (оставлено для чтения старой истории).
     case coreML
+    /// Нейросеть по API (ключ пользователя).
+    case remoteAPI
     case none
 }
 
