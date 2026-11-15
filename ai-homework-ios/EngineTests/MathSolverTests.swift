@@ -80,3 +80,16 @@ final class MathSolverTests: XCTestCase {
         }
     }
 }
+
+final class OCRQuirksTests: XCTestCase {
+    func testTimesSignReadAsVariable() {
+        XCTAssertEqual(MathNormalizer.resolveTimesSign("×^2 - 5× + 6 = 0"), "x^2 - 5x + 6 = 0")
+        XCTAssertEqual(MathNormalizer.resolveTimesSign("2 × 3"), "2 * 3")
+        XCTAssertEqual(MathNormalizer.resolveTimesSign("(a+1)×(a-1)"), "(a+1)*(a-1)")
+        XCTAssertEqual(MathNormalizer.resolveTimesSign("×² + 1"), "x² + 1")
+        let ru = MathSolver(lang: .ru)
+        XCTAssertEqual(ru.solve("×^2 - 5× + 6 = 0")?.answer, "x₁ = 2; x₂ = 3")
+        XCTAssertEqual(ru.solve("напишите ×^2 - 5x + 6 = 0 → «Решить»")?.answer, "x₁ = 2; x₂ = 3")
+        XCTAssertEqual(ru.solve("Вычислите 12 × 3")?.answer, "36")
+    }
+}
