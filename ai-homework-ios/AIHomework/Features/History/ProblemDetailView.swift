@@ -28,7 +28,7 @@ struct ProblemDetailView: View {
                 ContentUnavailableView(l("Задание удалено", "The task was deleted"), systemImage: "trash")
             }
         }
-        .background(AnimatedBackground(colors: matches.first?.subject.palette ?? Theme.brand, intensity: 0.6))
+        .background(AnimatedBackground())
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $sharedFile) { file in
             ActivityView(items: [file.url])
@@ -52,7 +52,7 @@ struct ProblemDetailView: View {
                         onCopied: { show($0) })
                 } else {
                     Text(l("Не удалось прочитать сохранённое решение. Решите задание заново.", "Could not read the saved solution. Please solve the task again."))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Palette.inkSubtle)
                 }
                 HStack(spacing: 10) {
                     GlassButton(title: l("Решить заново", "Solve again"), systemImage: "arrow.clockwise") {
@@ -79,7 +79,7 @@ struct ProblemDetailView: View {
                     try? context.save()
                 } label: {
                     Image(systemName: problem.isFavorite ? "bookmark.fill" : "bookmark")
-                        .foregroundStyle(problem.isFavorite ? Color.yellow : Color.primary)
+                        .foregroundStyle(problem.isFavorite ? Palette.accentHover : Palette.ink)
                 }
                 .accessibilityLabel(l("Избранное", "Favorite"))
 
@@ -131,18 +131,18 @@ struct ProblemDetailView: View {
             }
             Text(l("Условие", "Task"))
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.inkSubtle)
             Text(problem.problemText)
                 .font(.callout)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             Text(problem.createdAt.formatted(.dateTime.day().month(.wide).hour().minute().locale(app.settings.locale)))
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Palette.inkTertiary)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(cornerRadius: 22)
+        .glassCard()
         .padding(.top, 8)
     }
 
