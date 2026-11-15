@@ -105,7 +105,7 @@ extension SolutionReliability {
                 "Вычисления точные, но условие понято автоматически. Сверьте блок «Дано» с задачей.",
                 "The computation is exact, but the task was interpreted automatically. Compare “Given” with the problem.")
         case .generated:
-            return l("Текст создан языковой моделью на устройстве и может содержать ошибки.", "The text was written by an on-device language model and may contain mistakes.")
+            return l("Текст создан нейросетью и может содержать ошибки.", "The text was written by an AI model and may contain mistakes.")
         case .toolsOnly:
             return l("Готового ответа нет — показаны результаты локального анализа текста.", "There is no ready answer — on-device text analysis results are shown.")
         case .unsupported:
@@ -124,6 +124,7 @@ extension SolutionEngine {
         case .languageTools: return l("Анализ текста", "Text analysis")
         case .appleIntelligence: return "Apple Intelligence"
         case .coreML: return l("Модель Core ML", "Core ML model")
+        case .remoteAPI: return l("Нейросеть по API", "AI model via API")
         case .none: return l("Без решателя", "No solver")
         }
     }
