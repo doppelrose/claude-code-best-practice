@@ -15,12 +15,34 @@ struct SettingsData: Codable, Equatable, Sendable {
     var languageChoice: LanguageChoice = .system
     var appearance: Appearance = .system
     var hapticsEnabled = true
-    /// Использовать системную модель Apple Intelligence для заданий, которые не решаются алгоритмами.
+    /// Использовать Apple Intelligence, когда нет интернета или нейросеть по API недоступна.
     var useSystemModel = true
-    /// Идентификатор выбранной пользовательской модели Core ML.
-    var activeCoreMLModelID: String?
     /// Сохранять фотографию задания вместе с решением.
     var keepPhotosInHistory = true
+    /// Нейросеть по API: формат, адрес и модель (ключ хранится в Связке ключей).
+    var apiFormat: RemoteAPIFormat = .openAI
+    var apiBaseURL = ""
+    var apiModel = ""
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case languageChoice, appearance, hapticsEnabled, useSystemModel, keepPhotosInHistory, apiFormat, apiBaseURL, apiModel
+    }
+
+    /// Терпимая расшифровка: новые поля не ломают настройки, сохранённые старой версией.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = SettingsData()
+        languageChoice = (try? container.decodeIfPresent(LanguageChoice.self, forKey: .languageChoice)) ?? defaults.languageChoice
+        appearance = (try? container.decodeIfPresent(Appearance.self, forKey: .appearance)) ?? defaults.appearance
+        hapticsEnabled = (try? container.decodeIfPresent(Bool.self, forKey: .hapticsEnabled)) ?? defaults.hapticsEnabled
+        useSystemModel = (try? container.decodeIfPresent(Bool.self, forKey: .useSystemModel)) ?? defaults.useSystemModel
+        keepPhotosInHistory = (try? container.decodeIfPresent(Bool.self, forKey: .keepPhotosInHistory)) ?? defaults.keepPhotosInHistory
+        apiFormat = (try? container.decodeIfPresent(RemoteAPIFormat.self, forKey: .apiFormat)) ?? defaults.apiFormat
+        apiBaseURL = (try? container.decodeIfPresent(String.self, forKey: .apiBaseURL)) ?? defaults.apiBaseURL
+        apiModel = (try? container.decodeIfPresent(String.self, forKey: .apiModel)) ?? defaults.apiModel
+    }
 }
 
 /// Настройки приложения. Хранятся только на устройстве, в `UserDefaults`.
@@ -40,6 +62,7 @@ final class AppSettings {
             data = SettingsData()
         }
         Haptics.isEnabled = data.hapticsEnabled
+        loadAPIKey()
     }
 
     func save() {
@@ -59,6 +82,23 @@ final class AppSettings {
     }
 
     var l: L10n { L10n(language) }
+
+    private static let apiKeyAccount = "api-key"
+
+    /// Ключ API. Хранится в Связке ключей, в `UserDefaults` не попадает; сохраняется `saveAPIKey()`.
+    var apiKey: String = ""
+
+    func loadAPIKey() {
+        apiKey = KeychainStore.read(AppSettings.apiKeyAccount) ?? ""
+    }
+
+    func saveAPIKey() {
+        KeychainStore.write(apiKey, for: AppSettings.apiKeyAccount)
+    }
+
+    var remoteConfig: RemoteAPIConfig {
+        RemoteAPIConfig(format: data.apiFormat, baseURL: data.apiBaseURL, model: data.apiModel, apiKey: apiKey)
+    }
 
     var colorScheme: ColorScheme? {
         switch data.appearance {
