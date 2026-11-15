@@ -1,22 +1,41 @@
 import Foundation
 import UIKit
 
-/// Итог решения: само решение и, если уместно, локальный анализ текста.
+/// Итог решения: само решение, предмет (его могла уточнить нейросеть) и, если уместно, локальный анализ текста.
 struct SolveOutcome: Sendable {
     var solution: Solution
+    var subject: Subject
     var analysis: TextAnalysis?
+}
+
+/// Что происходит прямо сейчас — показывается на экране решения.
+enum SolvePhase: Equatable, Sendable {
+    /// Нейросеть-диспетчер выбирает, кто будет решать.
+    case routing(model: String)
+    /// Работает точный решатель на iPhone.
+    case exact
+    /// Задание решает нейросеть.
+    case model(name: String)
 }
 
 /// Координирует решение задания.
 ///
-/// Порядок всегда один и тот же:
-/// 1. точные алгоритмы на устройстве (математика, физика, химия, информатика) — бесплатно и без сети;
-/// 2. нейросеть по API пользователя — с выделенным фрагментом изображения;
-/// 3. без интернета (или если API недоступен) — Apple Intelligence на устройстве;
-/// 4. честное сообщение об ограничении плюс инструменты анализа текста.
+/// Если настроена нейросеть по API, она работает диспетчером:
+/// 1. смотрит на задание (фрагмент изображения и распознанный текст) и выбирает маршрут;
+/// 2. «программа» — переписывает условие и отдаёт его точному решателю на iPhone;
+/// 3. «нейросеть» — задание решается полноценно по API.
+/// Если точный решатель не справился с переписанным условием, задание всё равно уходит в API.
+///
+/// Без API (или без интернета): точный решатель → Apple Intelligence → честное сообщение об ограничении.
+/// Каждый шаг ограничен по времени, поэтому решение не может «висеть» бесконечно.
 @MainActor
 final class SolveCoordinator {
     private let settings: AppSettings
+
+    /// Точные алгоритмы обычно отвечают за миллисекунды; дольше — значит, задание им не по силам.
+    private static let exactTimeout: Double = 6
+    /// Apple Intelligence на устройстве.
+    private static let systemModelTimeout: Double = 60
 
     init(settings: AppSettings) {
         self.settings = settings
@@ -62,78 +81,163 @@ final class SolveCoordinator {
 
     // MARK: - Solving
 
-    func solve(text: String, subject: Subject, image: UIImage?) async -> SolveOutcome {
+    func solve(
+        text: String, subject initialSubject: Subject, subjectLocked: Bool, image: UIImage?,
+        onPhase: (SolvePhase) -> Void = { _ in }
+    ) async -> SolveOutcome {
         let lang = settings.language
         let l = settings.l
         let pipeline = LocalSolverPipeline(lang: lang)
         let trimmed = text.trimmed
+        var subject = initialSubject
+        var notes: [String] = []
 
-        // 1. Точные алгоритмы — вне главного потока, чтобы интерфейс оставался плавным.
-        var local: Solution?
-        if !trimmed.isEmpty {
-            local = await Task.detached(priority: .userInitiated) {
-                pipeline.solve(trimmed, subject: subject)
-            }.value
-        }
-
-        let needsTextTools = [Subject.russian, .english, .literature].contains(subject) && !trimmed.isEmpty
-        let analysis = needsTextTools ? LanguageTools.analyze(trimmed, lang: lang) : nil
-
-        if let local, local.isSolved {
-            return SolveOutcome(solution: local, analysis: analysis)
-        }
+        let config = settings.remoteConfig
+        let remote = config.isComplete ? RemoteAPIProvider(config: config) : nil
+        var remoteUsable = remote != nil
 
         // Изображение сжимаем один раз: длинная сторона до 1600 px достаточна для чтения формул.
         var imageData: Data?
-        if let image {
+        if remote != nil, let image {
             let boxed = UncheckedSendable(image)
             imageData = await Task.detached(priority: .userInitiated) {
                 ImageTools.jpegData(boxed.value, maxDimension: 1600, quality: 0.82)
             }.value
         }
 
-        // 2–3. Нейросеть по API, затем Apple Intelligence.
-        var failures: [String] = []
-        providerLoop: for provider in providers() {
-            let availability = await provider.availability(l)
-            guard availability.isAvailable else { continue }
-            // Модели без зрения нечего отправить, если текста нет.
-            if provider.engine != .remoteAPI, trimmed.isEmpty { continue }
+        // 1. Нейросеть-диспетчер выбирает маршрут.
+        var decision: TaskRoute.Target?
+        var modelProblem = trimmed
+        var triedExactly: Set<String> = []
+        var exactFailure: Solution?
+
+        if let remote, !trimmed.isEmpty || imageData != nil {
+            let name = remote.displayName(l)
+            onPhase(.routing(model: name))
             do {
-                let raw = try await provider.generate(
-                    instructions: ModelPrompting.instructions(lang: lang),
-                    prompt: ModelPrompting.prompt(
-                        problem: trimmed, subject: subject, lang: lang, hasImage: provider.engine == .remoteAPI && imageData != nil),
-                    image: provider.engine == .remoteAPI ? imageData : nil,
-                    maxTokens: 1_500)
-                var solution = ModelPrompting.parse(raw, subject: subject, engine: provider.engine, lang: lang)
-                if solution.isSolved {
-                    solution.problemType = l("Ответ модели «\(provider.displayName(l))»", "Answer by “\(provider.displayName(l))”")
-                    if !failures.isEmpty {
-                        solution.notes.append(contentsOf: failures)
+                if let route = try await remote.route(text: trimmed, subjectHint: subject, image: imageData, lang: lang) {
+                    decision = route.target
+                    if !subjectLocked, let routed = route.subject { subject = routed }
+                    if !route.problem.isEmpty { modelProblem = route.problem }
+
+                    if route.target == .local {
+                        // 2. «Программа»: условие в записи нейросети решает точный алгоритм.
+                        onPhase(.exact)
+                        triedExactly.insert(route.problem)
+                        let solved = await solveExactly(route.problem, subject: subject, pipeline: pipeline)
+                        if var solution = solved, solution.isSolved {
+                            solution.notes.append(
+                                l(
+                                    "Нейросеть «\(name)» прочитала задание и передала его точному решателю на iPhone в записи: \(route.problem)",
+                                    "The model “\(name)” read the task and handed it to the exact on-device solver as: \(route.problem)"))
+                            return outcome(solution, subject: subject, text: trimmed, lang: lang)
+                        }
+                        exactFailure = solved
                     }
-                    return SolveOutcome(solution: solution, analysis: analysis)
                 }
-                failures.append("\(provider.displayName(l)): \(solution.explanation)")
             } catch LanguageModelError.cancelled {
-                break providerLoop
-            } catch let error as RemoteAPIError {
-                failures.append("\(provider.displayName(l)): \(error.message(l))")
-            } catch let error as LanguageModelError {
-                failures.append("\(provider.displayName(l)): \(error.message(l))")
+                return outcome(pipeline.limitationMessage(for: subject), subject: subject, text: trimmed, lang: lang)
             } catch {
-                failures.append("\(provider.displayName(l)): \(error.localizedDescription)")
+                // Диспетчер недоступен — значит, и решать по этому API сейчас не выйдет.
+                remoteUsable = false
+                notes.append("\(name): \(describe(error, l))")
             }
         }
 
-        // 4. Честный отказ: объясняем, чего не хватает, и предлагаем то, что реально работает.
-        var fallback = local ?? pipeline.limitationMessage(for: subject)
-        fallback.notes.append(contentsOf: failures)
-        let fallbackAnalysis =
-            analysis ?? (subject.hasLocalEngine || trimmed.isEmpty ? nil : LanguageTools.analyze(trimmed, lang: lang))
-        if let fallbackAnalysis, !fallbackAnalysis.isEmpty, local == nil {
-            fallback.reliability = .toolsOnly
+        // 3. Точный решатель по исходному тексту — если диспетчера нет, он не ответил
+        //    или его запись не подошла. Если диспетчер явно выбрал нейросеть, его решение уважаем.
+        if decision != .model, !trimmed.isEmpty, !triedExactly.contains(trimmed) {
+            onPhase(.exact)
+            let solved = await solveExactly(trimmed, subject: subject, pipeline: pipeline)
+            if let solved, solved.isSolved {
+                return outcome(solved, subject: subject, text: trimmed, lang: lang, notes: notes)
+            }
+            exactFailure = exactFailure ?? solved
         }
-        return SolveOutcome(solution: fallback, analysis: fallbackAnalysis)
+
+        // 4. Решение нейросетью: сначала по API, затем Apple Intelligence на устройстве.
+        var providers: [any LanguageModelProvider] = []
+        if let remote, remoteUsable { providers.append(remote) }
+        if settings.data.useSystemModel { providers.append(AppleIntelligenceProvider()) }
+
+        providerLoop: for provider in providers {
+            let isRemote = provider.engine == .remoteAPI
+            // Моделям без зрения нечего отправить, если текста нет.
+            if !isRemote, modelProblem.isEmpty { continue }
+            let availability = await provider.availability(l)
+            guard availability.isAvailable else { continue }
+            let name = provider.displayName(l)
+            onPhase(.model(name: name))
+
+            let instructions = ModelPrompting.instructions(lang: lang)
+            let prompt = ModelPrompting.prompt(
+                problem: modelProblem, subject: subject, lang: lang, hasImage: isRemote && imageData != nil)
+            let image = isRemote ? imageData : nil
+            do {
+                let raw: String
+                if isRemote {
+                    // У запроса по API свой общий лимит времени (см. RemoteAPIProvider).
+                    raw = try await provider.generate(instructions: instructions, prompt: prompt, image: image, maxTokens: 1_500)
+                } else {
+                    raw = try await Deadline.run(seconds: Self.systemModelTimeout) {
+                        try await provider.generate(instructions: instructions, prompt: prompt, image: nil, maxTokens: 1_500)
+                    }
+                }
+                var solution = ModelPrompting.parse(raw, subject: subject, engine: provider.engine, lang: lang)
+                if solution.isSolved {
+                    solution.problemType = l("Ответ модели «\(name)»", "Answer by “\(name)”")
+                    return outcome(solution, subject: subject, text: trimmed, lang: lang, notes: notes)
+                }
+                notes.append("\(name): \(solution.explanation)")
+            } catch LanguageModelError.cancelled {
+                break providerLoop
+            } catch {
+                notes.append("\(name): \(describe(error, l))")
+            }
+        }
+
+        // 5. Честный отказ: объясняем, чего не хватает, и предлагаем то, что реально работает.
+        var fallback = exactFailure ?? pipeline.limitationMessage(for: subject)
+        fallback.notes.append(contentsOf: notes)
+        var result = outcome(fallback, subject: subject, text: trimmed, lang: lang)
+        if result.analysis == nil, !subject.hasLocalEngine, !trimmed.isEmpty {
+            let analysis = LanguageTools.analyze(trimmed, lang: lang)
+            if !analysis.isEmpty {
+                result.analysis = analysis
+                if exactFailure == nil { result.solution.reliability = .toolsOnly }
+            }
+        }
+        return result
+    }
+
+    // MARK: - Helpers
+
+    /// Точный решатель вне главного потока и с лимитом времени: зависнуть он не может.
+    private func solveExactly(_ text: String, subject: Subject, pipeline: LocalSolverPipeline) async -> Solution? {
+        let problem = text.trimmed
+        guard !problem.isEmpty else { return nil }
+        return await Deadline.compute(seconds: Self.exactTimeout) {
+            pipeline.solve(problem, subject: subject)
+        } ?? nil
+    }
+
+    private func outcome(
+        _ solution: Solution, subject: Subject, text: String, lang: AppLanguage, notes: [String] = []
+    ) -> SolveOutcome {
+        var solution = solution
+        solution.notes.append(contentsOf: notes)
+        let needsTextTools = [Subject.russian, .english, .literature].contains(subject) && !text.isEmpty
+        let analysis = needsTextTools ? LanguageTools.analyze(text, lang: lang) : nil
+        return SolveOutcome(solution: solution, subject: subject, analysis: analysis)
+    }
+
+    private func describe(_ error: Error, _ l: L10n) -> String {
+        switch error {
+        case let error as RemoteAPIError: return error.message(l)
+        case let error as LanguageModelError: return error.message(l)
+        case is Deadline.Exceeded:
+            return l("Модель не ответила вовремя.", "The model did not answer in time.")
+        default: return error.localizedDescription
+        }
     }
 }
