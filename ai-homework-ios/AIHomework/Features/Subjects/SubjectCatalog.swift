@@ -38,11 +38,11 @@ extension Subject {
                 l("Проверка орфографии системным словарём", "Spell checking with the system dictionary"),
                 l("Части речи и начальные формы слов", "Parts of speech and base word forms"),
                 l("Перевод и системный словарь на устройстве", "On-device translation and dictionary"),
-                l("Развёрнутые ответы — с локальной языковой моделью", "Full answers — with an on-device language model"),
+                l("Развёрнутые ответы — нейросетью по API", "Full answers — by the AI model via API"),
             ]
         case .history, .social, .biology, .geography, .other:
             return [
-                l("Развёрнутые ответы — с локальной языковой моделью", "Full answers — with an on-device language model"),
+                l("Развёрнутые ответы — нейросетью по API (без интернета — Apple Intelligence)", "Full answers — by the AI model via API (offline — Apple Intelligence)"),
                 l("Без модели: имена, места и даты в тексте, перевод", "Without a model: names, places and dates in the text, translation"),
             ]
         }
