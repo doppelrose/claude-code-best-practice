@@ -27,7 +27,6 @@ enum CaptureSource: String, Identifiable {
 @Observable
 final class AppModel {
     let settings: AppSettings
-    let modelStore: CoreMLModelStore
     let coordinator: SolveCoordinator
 
     /// Активный сценарий решения (показывается поверх главного экрана).
@@ -42,10 +41,8 @@ final class AppModel {
 
     init() {
         let settings = AppSettings()
-        let modelStore = CoreMLModelStore()
         self.settings = settings
-        self.modelStore = modelStore
-        coordinator = SolveCoordinator(settings: settings, modelStore: modelStore)
+        coordinator = SolveCoordinator(settings: settings)
     }
 
     // MARK: - Solving
@@ -120,8 +117,32 @@ final class AppModel {
 
     /// Забирает отложенное быстрое действие, если интент его оставил.
     func handlePendingQuickAction() {
+        if let screenshot = ScreenshotInbox.consume() {
+            dismissPresentations { [weak self] in
+                self?.startSolve(.image(screenshot))
+            }
+            return
+        }
         guard let action = QuickActionInbox.consume() else { return }
         perform(action)
+    }
+
+    /// Закрывает всё открытое и выполняет действие, когда окна успели закрыться.
+    private func dismissPresentations(then run: @escaping @MainActor () -> Void) {
+        let hadPresentation = activeFlow != nil || isSettingsPresented || capture != nil || isPhotoPickerPresented
+        if activeFlow != nil { closeFlow() }
+        isSettingsPresented = false
+        capture = nil
+        isPhotoPickerPresented = false
+        path = []
+        if hadPresentation {
+            Task {
+                try? await Task.sleep(for: .milliseconds(450))
+                run()
+            }
+        } else {
+            run()
+        }
     }
 
     func perform(_ action: QuickAction) {
