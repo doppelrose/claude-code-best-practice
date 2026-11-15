@@ -36,6 +36,8 @@ enum RemoteAPIError: Error, Equatable, Sendable {
     case refusal(String)
     case malformed
     case offline(String)
+    /// Сервер не ответил за отведённое время.
+    case timedOut
 
     func message(_ l: L10n) -> String {
         switch self {
@@ -66,6 +68,10 @@ enum RemoteAPIError: Error, Equatable, Sendable {
             return l("Не удалось разобрать ответ сервера. Проверьте формат API в настройках.", "Could not read the server response. Check the API format in Settings.")
         case .offline(let detail):
             return l("Нет связи с сервером API.", "Cannot reach the API server.") + (detail.isEmpty ? "" : " \(detail)")
+        case .timedOut:
+            return l(
+                "Нейросеть не ответила вовремя. Проверьте интернет (и что VPN не мешает соединению) и попробуйте ещё раз.",
+                "The AI model did not answer in time. Check the internet connection (and that a VPN is not interfering) and try again.")
         }
     }
 }
@@ -111,7 +117,7 @@ enum RemoteAPI {
     /// Запрос на решение задания: системная инструкция, текст и (необязательно) изображение JPEG.
     static func chatRequest(
         format: RemoteAPIFormat, baseURL text: String, apiKey: String, model: String,
-        instructions: String, prompt: String, imageJPEG: Data?
+        instructions: String, prompt: String, imageJPEG: Data?, maxTokens: Int? = nil
     ) throws -> RemoteAPIRequest {
         guard let base = baseURL(from: text) else { throw RemoteAPIError.invalidBaseURL }
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -132,13 +138,15 @@ enum RemoteAPI {
                 ])
             }
             content.append(["type": "text", "text": prompt])
-            body = [
+            var openAIBody: [String: Any] = [
                 "model": modelID,
                 "messages": [
                     ["role": "system", "content": instructions],
                     ["role": "user", "content": content],
                 ],
             ]
+            if let maxTokens { openAIBody["max_tokens"] = maxTokens }
+            body = openAIBody
         case .anthropic:
             url = endpoint(base, "messages")
             var content: [[String: Any]] = []
@@ -151,7 +159,7 @@ enum RemoteAPI {
             content.append(["type": "text", "text": prompt])
             body = [
                 "model": modelID,
-                "max_tokens": anthropicMaxTokens,
+                "max_tokens": maxTokens ?? anthropicMaxTokens,
                 "system": instructions,
                 "messages": [["role": "user", "content": content]],
             ]
