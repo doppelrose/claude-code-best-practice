@@ -1,15 +1,15 @@
 import SwiftUI
 
-/// Стиль нажатия: пружинное сжатие и тактильный отклик.
+/// Нажатие: короткое мягкое сжатие и затемнение — без «прыжка».
 struct PressableButtonStyle: ButtonStyle {
-    var scale: CGFloat = 0.96
+    var scale: CGFloat = 0.97
     var haptic = true
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? scale : 1)
-            .opacity(configuration.isPressed ? 0.92 : 1)
-            .animation(.spring(response: 0.26, dampingFraction: 0.6), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.9), value: configuration.isPressed)
             .onChange(of: configuration.isPressed) { _, isPressed in
                 if isPressed, haptic { Haptics.tap() }
             }
@@ -20,11 +20,12 @@ extension ButtonStyle where Self == PressableButtonStyle {
     static var pressable: PressableButtonStyle { PressableButtonStyle() }
 }
 
-/// Главная кнопка действия с фирменным градиентом.
+/// Главная кнопка: сплошной акцент, скругление 10 pt, без градиента и свечения.
 struct PrimaryButton: View {
     let title: String
     var systemImage: String?
     var isLoading = false
+    /// Оставлено для совместимости: главная кнопка всегда акцентная.
     var colors: [Color] = Theme.brand
     let action: () -> Void
 
@@ -32,31 +33,33 @@ struct PrimaryButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 if isLoading {
-                    ProgressView().tint(.white)
+                    ProgressView().tint(Palette.onAccent)
                 } else if let systemImage {
-                    Image(systemName: systemImage).font(.headline)
+                    Image(systemName: systemImage).font(.system(size: 15, weight: .semibold))
                 }
-                Text(title).font(.headline)
+                Text(title).font(.buttonLabel)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(Palette.onAccent)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 17)
+            .frame(height: 50)
             .background {
-                Capsule(style: .continuous)
-                    .fill(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing))
-                    .shadow(color: (colors.last ?? .purple).opacity(isEnabled ? 0.38 : 0), radius: 16, x: 0, y: 8)
+                RoundedRectangle(cornerRadius: Theme.smallRadius, style: .continuous)
+                    .fill(Palette.accent)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.smallRadius, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    }
             }
-            .saturation(isEnabled ? 1 : 0.3)
-            .opacity(isEnabled ? 1 : 0.6)
+            .opacity(isEnabled ? 1 : 0.45)
         }
         .buttonStyle(.pressable)
         .disabled(isLoading)
     }
 }
 
-/// Второстепенная кнопка на стекле.
+/// Второстепенная кнопка: поверхность с тонкой рамкой.
 struct GlassButton: View {
     let title: String
     var systemImage: String?
@@ -67,23 +70,23 @@ struct GlassButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if let systemImage {
-                    Image(systemName: systemImage).font(.subheadline.weight(.semibold))
+                    Image(systemName: systemImage).font(.system(size: 14, weight: .medium))
                 }
-                Text(title).font(.subheadline.weight(.semibold))
+                Text(title).font(.buttonLabel)
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(Palette.ink)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .glassCapsule(tint: tint, interactive: true)
+            .frame(height: 46)
+            .modifier(SurfaceStyle(shape: RoundedRectangle(cornerRadius: Theme.smallRadius, style: .continuous), level: .one, strongBorder: true))
         }
         .buttonStyle(.pressable)
     }
 }
 
-/// Круглая стеклянная кнопка-иконка.
+/// Круглая кнопка-иконка.
 struct GlassIconButton: View {
     let systemImage: String
-    var size: CGFloat = 44
+    var size: CGFloat = 40
     var tint: Color?
     var accessibilityLabel: String
     let action: () -> Void
@@ -91,10 +94,10 @@ struct GlassIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: size * 0.4, weight: .semibold))
-                .foregroundStyle(.primary)
+                .font(.system(size: size * 0.38, weight: .medium))
+                .foregroundStyle(tint ?? Palette.ink)
                 .frame(width: size, height: size)
-                .glassCircle(tint: tint)
+                .glassCircle()
         }
         .buttonStyle(.pressable)
         .accessibilityLabel(accessibilityLabel)
