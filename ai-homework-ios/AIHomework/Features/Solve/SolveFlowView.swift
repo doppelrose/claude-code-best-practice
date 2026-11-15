@@ -16,7 +16,7 @@ struct SolveFlowView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            AnimatedBackground(colors: model.subject.palette + [Theme.brand[2]], intensity: 0.85)
+            AnimatedBackground()
 
             VStack(spacing: 0) {
                 topBar
@@ -65,7 +65,7 @@ struct SolveFlowView: View {
                 AIOrb(size: 30, isActive: model.stage == .recognizing || model.stage == .solving)
                     .matchedGeometryEffect(id: "hero-orb", in: namespace)
                 Text(stageTitle)
-                    .font(.headline)
+                    .font(.cardTitle)
                     .contentTransition(.opacity)
                     .lineLimit(1)
             }
@@ -74,7 +74,7 @@ struct SolveFlowView: View {
             if model.stage == .result {
                 GlassIconButton(
                     systemImage: model.isFavorite ? "bookmark.fill" : "bookmark",
-                    tint: model.isFavorite ? Color.yellow : nil,
+                    tint: model.isFavorite ? Palette.accentHover : nil,
                     accessibilityLabel: l("В избранное", "Add to favorites")
                 ) {
                     model.toggleFavorite(context: context)
@@ -176,7 +176,7 @@ private struct SelectingStage: View {
             if let error = model.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Palette.inkMuted)
                     .padding(.horizontal, Theme.screenPadding)
                     .fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity)
@@ -224,40 +224,41 @@ private struct RecognizingStage: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous))
                     .overlay {
-                        // Луч сканирования.
+                        // Сканирующая линия: тонкая акцентная черта с короткой мягкой тенью следа.
                         GeometryReader { proxy in
-                            LinearGradient(
-                                colors: [Color.white.opacity(0), Theme.brand[1].opacity(0.55), Color.white.opacity(0.9), Theme.brand[2].opacity(0.55), Color.white.opacity(0)],
-                                startPoint: .top, endPoint: .bottom
-                            )
-                            .frame(height: 110)
-                            .offset(y: beam * (proxy.size.height + 110) - 110)
-                            .blendMode(.plusLighter)
+                            VStack(spacing: 0) {
+                                LinearGradient(
+                                    colors: [Palette.accent.opacity(0), Palette.accent.opacity(0.18)],
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                                .frame(height: 40)
+                                Rectangle().fill(Palette.accentHover).frame(height: 1.5)
+                            }
+                            .offset(y: beam * (proxy.size.height + 40) - 40)
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous))
                     }
                     .overlay {
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .strokeBorder(AngularGradient(colors: Theme.orb, center: .center), lineWidth: 2.5)
+                        RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous)
+                            .strokeBorder(Palette.hairlineStrong, lineWidth: 1)
                     }
-                    .shadow(color: Theme.brand[1].opacity(0.35), radius: 24, y: 12)
                     .padding(.horizontal, 28)
                     .frame(maxHeight: 420)
             }
             VStack(spacing: 6) {
                 Text(model.l("Читаю текст на изображении…", "Reading the text in the image…"))
-                    .font(.headline)
+                    .font(.cardTitle)
                 Label(model.l("Обработка на устройстве", "Processed on device"), systemImage: "lock.shield.fill")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.inkSubtle)
             }
             Spacer(minLength: 0)
         }
         .padding(.top, 20)
         .onAppear {
-            withAnimation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true)) {
+            withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
                 beam = 1
             }
         }
@@ -287,7 +288,7 @@ private struct SolvingStage: View {
                     .font(.title2.weight(.bold))
                 Text(statuses[statusIndex % statuses.count])
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.inkSubtle)
                     .contentTransition(.opacity)
                     .id(statusIndex)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
