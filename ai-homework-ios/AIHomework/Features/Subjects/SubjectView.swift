@@ -30,7 +30,7 @@ struct SubjectView: View {
             .padding(.horizontal, Theme.screenPadding)
             .padding(.bottom, 40)
         }
-        .background(AnimatedBackground(colors: subject.palette, intensity: 0.8))
+        .background(AnimatedBackground())
         .navigationTitle(subject.title(l))
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -40,10 +40,12 @@ struct SubjectView: View {
 
     private var header: some View {
         HStack(spacing: 16) {
-            SubjectIcon(subject: subject, size: 68)
+            SubjectIcon(subject: subject, size: 56)
             VStack(alignment: .leading, spacing: 6) {
                 Text(subject.title(l))
-                    .font(.system(.title, design: .rounded).weight(.bold))
+                    .font(.displayMedium)
+                    .tracking(-0.5)
+                    .foregroundStyle(Palette.ink)
                 statusBadge
             }
         }
@@ -54,22 +56,22 @@ struct SubjectView: View {
     private var statusBadge: some View {
         if subject.hasLocalEngine {
             Label(l("Точный решатель на устройстве", "Exact on-device solver"), systemImage: "checkmark.seal.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.green)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Palette.success)
         } else if hasModel {
             Label(l("Ответы нейросети", "AI model answers"), systemImage: "sparkles")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.purple)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Palette.accentHover)
         } else {
             Label(l("Нужна нейросеть", "Needs an AI model"), systemImage: "exclamationmark.circle.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Palette.inkSubtle)
         }
     }
 
     private var actions: some View {
         HStack(spacing: 12) {
-            PrimaryButton(title: l("Сфотографировать", "Take a photo"), systemImage: "camera.fill", colors: subject.palette) {
+            PrimaryButton(title: l("Сфотографировать", "Take a photo"), systemImage: "camera.fill") {
                 app.openCamera()
             }
             GlassButton(title: l("Текстом", "Type"), systemImage: "keyboard") {
@@ -82,12 +84,12 @@ struct SubjectView: View {
     private var capabilities: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(l("Что умеет приложение", "What the app can do"))
-                .font(.headline)
+                .font(.cardTitle)
             ForEach(Array(subject.capabilities(l).enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(subject.tint)
+                        .foregroundStyle(Palette.inkSubtle)
                         .padding(.top, 3)
                     Text(item)
                         .font(.subheadline)
@@ -120,16 +122,16 @@ struct SubjectView: View {
                     HStack(spacing: 12) {
                         Text(example)
                             .font(.subheadline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(Palette.ink)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 8)
                         Image(systemName: "arrow.up.right.circle.fill")
                             .font(.title3)
-                            .foregroundStyle(subject.tint)
+                            .foregroundStyle(Palette.inkSubtle)
                     }
                     .padding(14)
-                    .glassCard(cornerRadius: 18, interactive: true)
+                    .glassCard(interactive: true)
                 }
                 .buttonStyle(.pressable)
             }
@@ -143,7 +145,7 @@ struct SubjectView: View {
                 NavigationLink(value: AppRoute.problem(problem.id)) {
                     ProblemRow(problem: problem, l: l)
                         .padding(12)
-                        .glassCard(cornerRadius: 18)
+                        .glassCard()
                 }
                 .buttonStyle(.pressable)
             }
