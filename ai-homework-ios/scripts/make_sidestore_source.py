@@ -26,17 +26,18 @@ parser.add_argument("--out", default="source.json")
 args = parser.parse_args()
 
 description = (
-    "Решатель школьных заданий, который работает прямо на iPhone: камера, выделение части задания, "
-    "распознавание текста, пошаговые решения по математике, физике, химии и информатике. "
-    "Без API-ключей, регистрации и серверов.\n\n"
-    "A homework solver that runs entirely on your iPhone. No API keys, sign-up or servers."
+    "Решатель школьных заданий: скриншот по кнопке действия или фото, выделение части задания пальцем, "
+    "пошаговые решения. Типовые задачи по математике, физике, химии и информатике решаются прямо на iPhone, "
+    "остальное — нейросетью по вашему API-ключу; без интернета — Apple Intelligence.\n\n"
+    "A homework solver: Action Button screenshot or photo, circle the task, step-by-step solutions. "
+    "Standard problems are solved on the iPhone, the rest by an AI model with your API key."
 )
 
 source = {
     "name": "AI Homework",
     "identifier": args.bundle_id + ".source",
     "sourceURL": args.source_url,
-    "subtitle": "On-device homework solver",
+    "subtitle": "Homework solver",
     "description": description,
     "iconURL": args.icon_url,
     "tintColor": "#7C5CFC",
