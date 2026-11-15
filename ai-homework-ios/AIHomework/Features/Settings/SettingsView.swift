@@ -2,15 +2,24 @@ import AppIntents
 import SwiftData
 import SwiftUI
 
-/// Настройки: язык, оформление, кнопка действия, локальные модели, приватность и данные.
+/// Настройки: язык, оформление, кнопка действия, нейросеть по API, Apple Intelligence, приватность и данные.
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
     @State private var systemModel: ModelAvailability?
-    @State private var isImporterPresented = false
     @State private var isClearConfirmationPresented = false
+    @State private var availableModels: [String] = []
+    @State private var connectionStatus: ConnectionStatus = .idle
+    @State private var isKeyVisible = false
+
+    private enum ConnectionStatus: Equatable {
+        case idle
+        case checking
+        case success(String)
+        case failure(String)
+    }
 
     private var l: L10n { app.l }
 
@@ -34,8 +43,9 @@ struct SettingsView: View {
                     Toggle(l("Сохранять фото в истории", "Keep photos in history"), isOn: $settings.data.keepPhotosInHistory)
                 }
 
+                apiSection(settings: settings)
+                systemModelSection(settings: settings)
                 actionButtonSection
-                modelsSection(settings: settings)
                 privacySection
 
                 Section(l("Данные", "Data")) {
@@ -49,8 +59,8 @@ struct SettingsView: View {
                 } footer: {
                     Text(
                         l(
-                            "AI Homework решает задания прямо на iPhone: Vision для распознавания, собственные математические, физические и химические движки и, по желанию, локальная языковая модель.",
-                            "AI Homework solves tasks right on your iPhone: Vision for recognition, built-in math, physics and chemistry engines and, optionally, an on-device language model."
+                            "AI Homework сначала решает задание точными алгоритмами на iPhone (математика, физика, химия, информатика), а остальное отправляет в выбранную вами нейросеть. Без интернета работает Apple Intelligence.",
+                            "AI Homework first solves a task with exact algorithms on the iPhone (math, physics, chemistry, computer science) and sends the rest to the AI model you chose. Offline, Apple Intelligence is used."
                         ))
                 }
             }
@@ -63,27 +73,12 @@ struct SettingsView: View {
             }
             .onChange(of: settings.data) { _, _ in
                 settings.save()
-                Haptics.selection()
+            }
+            .onChange(of: settings.apiKey) { _, _ in
+                settings.saveAPIKey()
             }
             .task(id: settings.data.languageChoice) {
                 systemModel = await AppleIntelligenceProvider().availability(l)
-            }
-            .fileImporter(isPresented: $isImporterPresented, allowedContentTypes: CoreMLModelStore.importableTypes) { result in
-                switch result {
-                case .success(let url):
-                    Task {
-                        if let installed = await app.modelStore.importModel(from: url, l: l) {
-                            Haptics.success()
-                            if installed.kind == .textGenerator, installed.hasTokenizer {
-                                app.settings.data.activeCoreMLModelID = installed.id
-                            }
-                        } else {
-                            Haptics.error()
-                        }
-                    }
-                case .failure(let error):
-                    app.modelStore.lastError = error.localizedDescription
-                }
             }
             .confirmationDialog(
                 l("Удалить все задания?", "Delete all tasks?"), isPresented: $isClearConfirmationPresented, titleVisibility: .visible
@@ -97,67 +92,161 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Action Button
+    // MARK: - API
 
-    private var actionButtonSection: some View {
+    private func apiSection(settings: AppSettings) -> some View {
         Section {
-            VStack(alignment: .leading, spacing: 10) {
-                Label(l("Решать одним нажатием", "Solve with one press"), systemImage: "button.programmable")
-                    .font(.headline)
-                instruction(1, l("Откройте «Настройки» → «Кнопка действия».", "Open Settings → Action Button."))
-                instruction(
-                    2,
-                    l(
-                        "iOS 18 и новее: выберите «Элемент управления» → AI Homework → «Решить задание» или «Сканировать задание».",
-                        "iOS 18 or later: choose Controls → AI Homework → Solve homework or Scan homework."))
-                instruction(
-                    3,
-                    l(
-                        "iOS 17: выберите «Команда» → AI Homework → «Решить задание».",
-                        "iOS 17: choose Shortcut → AI Homework → Solve homework."))
-                Text(
-                    l(
-                        "Теперь нажатие кнопки сразу открывает камеру. В «Командах» можно выбрать и другой способ: сканер, галерею, буфер обмена или ввод текста.",
-                        "Now a press opens the camera right away. In Shortcuts you can pick another input: scanner, photos, clipboard or typing."
-                    )
-                )
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            Picker(l("Формат API", "API format"), selection: Bindable(settings).data.apiFormat) {
+                ForEach(RemoteAPIFormat.allCases) { format in
+                    Text(format.title).tag(format)
+                }
             }
-            .padding(.vertical, 4)
-            ShortcutsLink()
-                .shortcutsLinkStyle(.automaticOutline)
-                .frame(maxWidth: .infinity)
-                .listRowBackground(Color.clear)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(l("Адрес API", "API address")).font(.caption).foregroundStyle(.secondary)
+                TextField("https://api.example.com/v1", text: Bindable(settings).data.apiBaseURL)
+                    .keyboardType(.URL)
+                    .textContentType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(l("Ключ API", "API key")).font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Group {
+                        if isKeyVisible {
+                            TextField("sk-…", text: Bindable(settings).apiKey)
+                        } else {
+                            SecureField("sk-…", text: Bindable(settings).apiKey)
+                        }
+                    }
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    Button {
+                        isKeyVisible.toggle()
+                    } label: {
+                        Image(systemName: isKeyVisible ? "eye.slash" : "eye")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(l("Показать ключ", "Show key"))
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(l("Модель", "Model")).font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    TextField(l("например, claude-opus-5-5", "e.g. claude-opus-5-5"), text: Bindable(settings).data.apiModel)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    if !availableModels.isEmpty {
+                        Menu {
+                            ForEach(availableModels, id: \.self) { model in
+                                Button(model) {
+                                    settings.data.apiModel = model
+                                    Haptics.selection()
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "list.bullet.circle")
+                        }
+                        .accessibilityLabel(l("Выбрать из списка", "Choose from the list"))
+                    }
+                }
+            }
+
+            Button {
+                checkConnection(settings.remoteConfig)
+            } label: {
+                HStack {
+                    Label(l("Проверить и загрузить модели", "Check and load models"), systemImage: "checkmark.shield")
+                    if connectionStatus == .checking {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(connectionStatus == .checking)
+
+            Button {
+                sendTestQuestion(settings.remoteConfig)
+            } label: {
+                Label(l("Отправить тестовый вопрос", "Send a test question"), systemImage: "paperplane")
+            }
+            .disabled(connectionStatus == .checking || !settings.remoteConfig.isComplete)
+
+            switch connectionStatus {
+            case .success(let message):
+                Label(message, systemImage: "checkmark.circle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.green)
+            case .failure(let message):
+                Label(message, systemImage: "xmark.octagon.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            case .idle, .checking:
+                EmptyView()
+            }
         } header: {
-            Text(l("Кнопка действия", "Action Button"))
+            Text(l("Нейросеть по API", "AI model via API"))
         } footer: {
             Text(
                 l(
-                    "Кнопка действия есть на iPhone 15 Pro, iPhone 16 и новее. Эти же действия доступны в Пункте управления, на экране блокировки и через Siri: «Решить задание в AI Homework».",
-                    "The Action Button is available on iPhone 15 Pro, iPhone 16 and later. The same actions work in Control Center, on the Lock Screen and with Siri: “Solve homework with AI Homework”."
+                    "Укажите данные из личного кабинета вашего сервиса (apimira, OpenRouter и т. п.). Адрес обычно заканчивается на /v1. Большинство сервисов работают в формате OpenAI. Ключ хранится в защищённой Связке ключей iPhone. Задание и выделенный фрагмент изображения отправляются только на этот адрес и только когда точные алгоритмы не справились.",
+                    "Enter the details from your service's dashboard (apimira, OpenRouter, etc.). The address usually ends with /v1. Most services use the OpenAI format. The key is stored in the secure iPhone Keychain. The task and the selected part of the image are sent only to this address and only when the exact algorithms could not solve it."
                 ))
         }
     }
 
-    private func instruction(_ number: Int, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text("\(number)")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
-                .frame(width: 22, height: 22)
-                .background(Circle().fill(Color.orange))
-            Text(text)
-                .font(.subheadline)
-                .fixedSize(horizontal: false, vertical: true)
+    private func checkConnection(_ config: RemoteAPIConfig) {
+        connectionStatus = .checking
+        Task {
+            do {
+                let models = try await RemoteAPIProvider.fetchModels(config)
+                availableModels = models
+                Haptics.success()
+                connectionStatus =
+                    models.isEmpty
+                    ? .success(l("Подключение работает. Список моделей сервис не вернул — впишите название вручную.", "The connection works. The service returned no model list — type the name manually."))
+                    : .success(l("Подключение работает. Моделей: \(models.count) — выберите в списке у поля «Модель».", "The connection works. Models: \(models.count) — pick one from the list next to “Model”."))
+            } catch let error as RemoteAPIError {
+                Haptics.error()
+                connectionStatus = .failure(error.message(l))
+            } catch {
+                Haptics.error()
+                connectionStatus = .failure(error.localizedDescription)
+            }
         }
     }
 
-    // MARK: - Models
+    private func sendTestQuestion(_ config: RemoteAPIConfig) {
+        connectionStatus = .checking
+        Task {
+            do {
+                let answer = try await RemoteAPIProvider(config: config).generate(
+                    instructions: l("Отвечай кратко.", "Answer briefly."),
+                    prompt: l("Сколько будет 2 + 2? Ответь одним числом.", "What is 2 + 2? Answer with a single number."),
+                    image: nil, maxTokens: 50)
+                Haptics.success()
+                connectionStatus = .success(l("Модель ответила: ", "The model answered: ") + String(answer.prefix(80)))
+            } catch let error as RemoteAPIError {
+                Haptics.error()
+                connectionStatus = .failure(error.message(l))
+            } catch let error as LanguageModelError {
+                Haptics.error()
+                connectionStatus = .failure(error.message(l))
+            } catch {
+                Haptics.error()
+                connectionStatus = .failure(error.localizedDescription)
+            }
+        }
+    }
 
-    private func modelsSection(settings: AppSettings) -> some View {
+    // MARK: - Apple Intelligence
+
+    private func systemModelSection(settings: AppSettings) -> some View {
         Section {
-            // Системная модель Apple Intelligence.
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Label("Apple Intelligence", systemImage: "sparkles")
@@ -180,53 +269,73 @@ struct SettingsView: View {
                 }
             }
             .padding(.vertical, 4)
-            Toggle(l("Использовать системную модель", "Use the system model"), isOn: Bindable(settings).data.useSystemModel)
-
-            // Пользовательские модели Core ML.
-            ForEach(app.modelStore.models) { model in
-                CoreMLModelRow(
-                    model: model, isActive: settings.data.activeCoreMLModelID == model.id, l: l
-                ) {
-                    if model.kind == .textGenerator, model.hasTokenizer {
-                        settings.data.activeCoreMLModelID = settings.data.activeCoreMLModelID == model.id ? nil : model.id
-                    }
-                }
-                .swipeActions {
-                    Button(role: .destructive) {
-                        if settings.data.activeCoreMLModelID == model.id { settings.data.activeCoreMLModelID = nil }
-                        app.modelStore.delete(model)
-                    } label: {
-                        Label(l("Удалить", "Delete"), systemImage: "trash")
-                    }
-                }
-            }
-
-            Button {
-                isImporterPresented = true
-            } label: {
-                HStack {
-                    Label(l("Установить модель Core ML", "Install a Core ML model"), systemImage: "square.and.arrow.down")
-                    if app.modelStore.isImporting {
-                        Spacer()
-                        ProgressView()
-                    }
-                }
-            }
-            .disabled(app.modelStore.isImporting)
-
-            if let error = app.modelStore.lastError {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-            }
+            Toggle(l("Использовать без интернета", "Use when offline"), isOn: Bindable(settings).data.useSystemModel)
         } header: {
-            Text(l("Локальные модели", "On-device models"))
+            Text(l("Без интернета", "Offline"))
         } footer: {
             Text(
                 l(
-                    "Математика, физика, химия и информатика решаются точными алгоритмами без всякой модели. Модель нужна только для текстовых заданий (история, литература, обществознание и др.). Поддерживаются: системная модель Apple (iOS 26+, устройства с Apple Intelligence) и собственные языковые модели Core ML — папка с model.mlpackage и tokenizer.json (вход input_ids, выход logits). Классификатор текста Create ML с метками предметов улучшит их определение. Подробности — в README проекта.",
-                    "Math, physics, chemistry and computer science are solved by exact algorithms without any model. A model is only needed for text tasks (history, literature, social studies, etc.). Supported: the Apple system model (iOS 26+, Apple Intelligence devices) and your own Core ML language models — a folder with model.mlpackage and tokenizer.json (input_ids input, logits output). A Create ML text classifier with subject labels improves subject detection. See the project README for details."
+                    "Если нет интернета или сервис API недоступен, текстовые задания решает модель Apple Intelligence прямо на iPhone (iOS 26+, iPhone 15 Pro и новее). Она не видит изображения — только распознанный текст.",
+                    "Without internet or when the API service is unavailable, text tasks are solved by the Apple Intelligence model right on the iPhone (iOS 26+, iPhone 15 Pro or later). It does not see images — only the recognized text."
                 ))
+        }
+    }
+
+    // MARK: - Action Button
+
+    private var actionButtonSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(l("Скриншот и выделение одной кнопкой", "Screenshot and select with one press"), systemImage: "button.programmable")
+                    .font(.headline)
+                instruction(1, l("Откройте приложение «Команды» и нажмите «+».", "Open the Shortcuts app and tap “+”."))
+                instruction(2, l("Добавьте действие «Сделать снимок экрана».", "Add the “Take Screenshot” action."))
+                instruction(
+                    3,
+                    l(
+                        "Добавьте действие «Решить скриншот» (AI Homework). В поле «Изображение» должен стоять «Снимок экрана».",
+                        "Add the “Solve a screenshot” action (AI Homework). Its “Image” field must be set to “Screenshot”."))
+                instruction(4, l("Назовите команду, например «Решить с экрана».", "Name the shortcut, e.g. “Solve from screen”."))
+                instruction(
+                    5,
+                    l(
+                        "«Настройки» → «Кнопка действия» → «Команда» → выберите эту команду.",
+                        "Settings → Action Button → Shortcut → choose this shortcut."))
+                Text(
+                    l(
+                        "Теперь нажатие кнопки снимает экран, открывает AI Homework, вы обводите задание пальцем — и решение начинается сразу.",
+                        "Now a press takes a screenshot and opens AI Homework; you circle the task with your finger and solving starts right away."
+                    )
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+            ShortcutsLink()
+                .shortcutsLinkStyle(.automaticOutline)
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+        } header: {
+            Text(l("Кнопка действия", "Action Button"))
+        } footer: {
+            Text(
+                l(
+                    "Скриншот делает приложение «Команды»: iOS не разрешает приложениям снимать экран других приложений. Кнопка действия есть на iPhone 15 Pro, iPhone 16 и новее.",
+                    "The screenshot is taken by the Shortcuts app: iOS does not let apps capture other apps' screens. The Action Button is available on iPhone 15 Pro, iPhone 16 and later."
+                ))
+        }
+    }
+
+    private func instruction(_ number: Int, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(number)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.orange))
+            Text(text)
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -234,10 +343,10 @@ struct SettingsView: View {
 
     private var privacySection: some View {
         Section(l("Конфиденциальность", "Privacy")) {
-            privacyRow("iphone", l("Фото и задания обрабатываются на устройстве", "Photos and tasks are processed on device"))
-            privacyRow("network.slash", l("Ничего не отправляется на серверы", "Nothing is sent to servers"))
+            privacyRow("iphone", l("Точные задачи решаются на устройстве, без сети", "Exact tasks are solved on device, offline"))
+            privacyRow("arrow.up.forward.app", l("Остальное уходит только в выбранный вами API", "Everything else goes only to the API you chose"))
+            privacyRow("key.fill", l("Ключ хранится в Связке ключей", "The key is stored in the Keychain"))
             privacyRow("person.crop.circle.badge.xmark", l("Без регистрации и аналитики", "No sign-up and no analytics"))
-            privacyRow("key.slash", l("Не нужны API-ключи", "No API keys needed"))
         }
     }
 
@@ -253,49 +362,5 @@ struct SettingsView: View {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         return "\(version) (\(build))"
-    }
-}
-
-/// Строка установленной модели.
-private struct CoreMLModelRow: View {
-    let model: InstalledModel
-    let isActive: Bool
-    let l: L10n
-    let onSelect: () -> Void
-
-    private var kindTitle: String {
-        switch model.kind {
-        case .textGenerator:
-            return model.hasTokenizer ? l("Языковая модель", "Language model") : l("Языковая модель без токенизатора", "Language model, no tokenizer")
-        case .subjectClassifier: return l("Определение предмета", "Subject detection")
-        case .unsupported: return l("Не поддерживается", "Unsupported")
-        }
-    }
-
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 12) {
-                Image(systemName: model.kind == .subjectClassifier ? "tag.fill" : "cpu")
-                    .foregroundStyle(model.kind == .unsupported ? Color.secondary : Color.purple)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                    Text("\(kindTitle) · \(ByteCountFormatter.string(fromByteCount: model.sizeBytes, countStyle: .file))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if !model.summary.isEmpty {
-                        Text(model.summary)
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(2)
-                    }
-                }
-                Spacer()
-                if isActive {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                }
-            }
-        }
-        .buttonStyle(.plain)
     }
 }
