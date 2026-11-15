@@ -1,86 +1,83 @@
 import SwiftUI
 
-/// «Стеклянная» поверхность.
+/// Поверхность по дизайн-системе Linear: плоская заливка на ступень светлее фона,
+/// тонкая рамка 1 pt и едва заметный блик по верхнему краю. Без теней и размытия.
 ///
-/// На iOS 26 и новее используется настоящий Liquid Glass (`glassEffect`), на iOS 17–18 —
-/// максимально близкая замена на системных материалах: полупрозрачный фон, тонкий блик
-/// по контуру и мягкая тень.
-struct GlassSurface<S: InsettableShape>: ViewModifier {
-    let shape: S
-    var tint: Color?
-    var interactive = false
-    var shadow = true
+/// Названия модификаторов (`glassCard`, `glassCapsule`, `glassCircle`) остались от прежнего
+/// дизайна, чтобы не переписывать все экраны; теперь они рисуют плоские поверхности.
+struct SurfaceStyle<S: InsettableShape>: ViewModifier {
+    enum Level {
+        case one, two, three
 
-    func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
-                content.glassEffect(Glass.regular.tint(tint).interactive(interactive), in: shape)
-            } else {
-                fallback(content)
+        var fill: Color {
+            switch self {
+            case .one: return Palette.surface1
+            case .two: return Palette.surface2
+            case .three: return Palette.surface3
             }
-        #else
-            fallback(content)
-        #endif
+        }
     }
 
-    private func fallback(_ content: Content) -> some View {
+    let shape: S
+    var level: Level = .one
+    var strongBorder = false
+
+    func body(content: Content) -> some View {
         content
             .background {
                 shape
-                    .fill(.ultraThinMaterial)
-                    .overlay { shape.fill((tint ?? Color.clear).opacity(0.16)) }
+                    .fill(level.fill)
                     .overlay {
+                        // Блик по верхнему краю — «отрисованный пиксель» на тёмной поверхности.
                         shape.strokeBorder(
                             LinearGradient(
-                                colors: [Color.white.opacity(0.55), Color.white.opacity(0.08), Color.white.opacity(0.22)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing),
-                            lineWidth: 0.8)
+                                colors: [Color.white.opacity(0.06), Color.white.opacity(0)],
+                                startPoint: .top, endPoint: .center),
+                            lineWidth: 1)
                     }
-                    .shadow(color: Color.black.opacity(shadow ? 0.12 : 0), radius: 18, x: 0, y: 10)
+                    .overlay {
+                        shape.strokeBorder(strongBorder ? Palette.hairlineStrong : Palette.hairline, lineWidth: 1)
+                    }
             }
     }
 }
 
 extension View {
-    /// Стеклянная карточка со скруглёнными углами.
+    /// Карточка: поверхность первого уровня, скругление 12 pt.
+    /// `tint` и `interactive` оставлены для совместимости: акцентные заливки карточек в Linear запрещены.
     func glassCard(cornerRadius: CGFloat = Theme.cardRadius, tint: Color? = nil, interactive: Bool = false) -> some View {
-        modifier(GlassSurface(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), tint: tint, interactive: interactive))
+        modifier(
+            SurfaceStyle(
+                shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), level: .one, strongBorder: interactive))
     }
 
-    /// Стеклянная «капсула» — для чипов и плавающих панелей.
+    /// Капсула — для чипов, статусов и плавающих панелей (поверхность второго уровня).
     func glassCapsule(tint: Color? = nil, interactive: Bool = false) -> some View {
-        modifier(GlassSurface(shape: Capsule(style: .continuous), tint: tint, interactive: interactive))
+        modifier(SurfaceStyle(shape: Capsule(style: .continuous), level: .two, strongBorder: interactive))
     }
 
-    /// Стеклянный круг — для кнопок-иконок.
+    /// Круг — для кнопок-иконок.
     func glassCircle(tint: Color? = nil, interactive: Bool = true) -> some View {
-        modifier(GlassSurface(shape: Circle(), tint: tint, interactive: interactive))
+        modifier(SurfaceStyle(shape: Circle(), level: .two))
     }
 
-    /// Непрозрачная карточка контента (текст решения читается лучше на плотном фоне).
+    /// Карточка контента (решение, шаги): поверхность первого уровня.
     func contentCard(cornerRadius: CGFloat = Theme.cardRadius) -> some View {
-        background {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-                .shadow(color: Color.black.opacity(0.06), radius: 14, x: 0, y: 6)
-        }
+        modifier(SurfaceStyle(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), level: .one))
+    }
+
+    /// Поле ввода или вложенная панель: поверхность второго уровня.
+    func insetSurface(cornerRadius: CGFloat = Theme.smallRadius) -> some View {
+        modifier(SurfaceStyle(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), level: .two))
     }
 }
 
-/// Группа стеклянных элементов: на iOS 26 они «сливаются» при сближении, как в системных панелях.
+/// Группа элементов. Раньше объединяла «жидкое стекло»; в плоском дизайне просто выводит содержимое.
 struct GlassGroup<Content: View>: View {
     var spacing: CGFloat = 12
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        #if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
-                GlassEffectContainer(spacing: spacing) { content() }
-            } else {
-                content()
-            }
-        #else
-            content()
-        #endif
+        content()
     }
 }
