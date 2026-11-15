@@ -12,63 +12,95 @@ extension Color {
     }
 }
 
+extension Color {
+    /// Цвет, который меняется вместе с темой: `light` — для светлой, `dark` — для тёмной.
+    init(light: UInt32, dark: UInt32) {
+        self.init(
+            uiColor: UIColor { traits in
+                let hex = traits.userInterfaceStyle == .dark ? dark : light
+                return UIColor(
+                    red: CGFloat((hex >> 16) & 0xFF) / 255,
+                    green: CGFloat((hex >> 8) & 0xFF) / 255,
+                    blue: CGFloat(hex & 0xFF) / 255,
+                    alpha: 1)
+            })
+    }
+}
+
+/// Цвета по дизайн-системе Linear (awesome-design-md/design-md/linear.app):
+/// почти чёрное полотно, «лестница» поверхностей, тонкие рамки и единственный акцент.
+enum Palette {
+    /// Единственный цветной акцент — лавандово-синий. Только для главных действий, фокуса и ссылок.
+    static let accent = Color(light: 0x5E6AD2, dark: 0x5E6AD2)
+    static let accentHover = Color(light: 0x4F5BC4, dark: 0x828FFF)
+    /// Текст на акценте.
+    static let onAccent = Color.white
+
+    static let canvas = Color(light: 0xFBFBFC, dark: 0x010102)
+    static let surface1 = Color(light: 0xFFFFFF, dark: 0x0F1011)
+    static let surface2 = Color(light: 0xF4F5F6, dark: 0x141516)
+    static let surface3 = Color(light: 0xECEDEF, dark: 0x18191A)
+
+    static let hairline = Color(light: 0xE6E7EA, dark: 0x23252A)
+    static let hairlineStrong = Color(light: 0xD3D5DA, dark: 0x34343A)
+
+    static let ink = Color(light: 0x08090A, dark: 0xF7F8F8)
+    static let inkMuted = Color(light: 0x3C3F44, dark: 0xD0D6E0)
+    static let inkSubtle = Color(light: 0x6B6F76, dark: 0x8A8F98)
+    static let inkTertiary = Color(light: 0x9A9EA5, dark: 0x62666D)
+
+    /// Единственный семантический цвет — «готово / точно».
+    static let success = Color(light: 0x1F8A3A, dark: 0x27A644)
+}
+
 /// Общие параметры оформления.
 enum Theme {
-    static let cardRadius: CGFloat = 26
-    static let smallRadius: CGFloat = 16
+    /// Карточки — 12 pt, крупные панели — 16 pt, кнопки и поля — 10 pt (8 pt в Linear + запас для пальца).
+    static let cardRadius: CGFloat = 12
+    static let panelRadius: CGFloat = 16
+    static let smallRadius: CGFloat = 10
     static let screenPadding: CGFloat = 20
 
-    /// Фирменный градиент: индиго → фиолетовый → розовый.
-    static let brand = [Color(hex: 0x4F46E5), Color(hex: 0x8B5CF6), Color(hex: 0xEC4899)]
-    static let orb = [
-        Color(hex: 0x38BDF8), Color(hex: 0x6366F1), Color(hex: 0xA855F7), Color(hex: 0xEC4899), Color(hex: 0xFB923C), Color(hex: 0x38BDF8),
-    ]
+    /// Наследие прежнего дизайна: везде, где раньше был градиент, теперь сплошной акцент.
+    static let brand = [Palette.accent, Palette.accent]
+    static let orb = [Palette.accent, Palette.accentHover, Palette.accent]
 
     static var brandGradient: LinearGradient {
-        LinearGradient(colors: brand, startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: brand, startPoint: .top, endPoint: .bottom)
     }
 
-    /// Основная пружина интерфейса: быстрая, с лёгким отскоком.
-    static let spring = Animation.spring(response: 0.42, dampingFraction: 0.82)
-    static let bouncy = Animation.spring(response: 0.38, dampingFraction: 0.68)
-    static let gentle = Animation.spring(response: 0.6, dampingFraction: 0.9)
+    /// Движение: плавные пружины без отскока — элементы «доезжают», а не прыгают.
+    static let spring = Animation.spring(response: 0.38, dampingFraction: 0.92)
+    static let bouncy = Animation.spring(response: 0.32, dampingFraction: 0.86)
+    static let gentle = Animation.spring(response: 0.55, dampingFraction: 0.95)
+}
+
+extension Font {
+    /// Заголовки как в Linear: полужирный 600 и отрицательный трекинг задаются через `.tracking`.
+    static let displayLarge = Font.system(size: 32, weight: .semibold)
+    static let displayMedium = Font.system(size: 26, weight: .semibold)
+    static let headlineTitle = Font.system(size: 20, weight: .semibold)
+    static let cardTitle = Font.system(size: 17, weight: .medium)
+    static let buttonLabel = Font.system(size: 15, weight: .medium)
 }
 
 extension Subject {
-    /// Пара цветов предмета для градиентов и акцентов.
-    var palette: [Color] {
-        switch self {
-        case .math: return [Color(hex: 0x5B5BF7), Color(hex: 0xA855F7)]
-        case .physics: return [Color(hex: 0x2563EB), Color(hex: 0x22D3EE)]
-        case .chemistry: return [Color(hex: 0x059669), Color(hex: 0x34D399)]
-        case .russian: return [Color(hex: 0xF43F5E), Color(hex: 0xFB923C)]
-        case .english: return [Color(hex: 0x0EA5E9), Color(hex: 0x6366F1)]
-        case .history: return [Color(hex: 0xD97706), Color(hex: 0xFBBF24)]
-        case .social: return [Color(hex: 0xC026D3), Color(hex: 0xEC4899)]
-        case .biology: return [Color(hex: 0x65A30D), Color(hex: 0x22C55E)]
-        case .geography: return [Color(hex: 0x0D9488), Color(hex: 0x3B82F6)]
-        case .literature: return [Color(hex: 0x7C3AED), Color(hex: 0xF472B6)]
-        case .informatics: return [Color(hex: 0x475569), Color(hex: 0x06B6D4)]
-        case .other: return [Color(hex: 0x8B5CF6), Color(hex: 0xEC4899)]
-        }
-    }
+    /// Предметы больше не раскрашены: один акцент на всё приложение.
+    var palette: [Color] { [Palette.accent, Palette.accent] }
 
-    var tint: Color { palette[0] }
+    var tint: Color { Palette.accent }
 
     var gradient: LinearGradient {
-        LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: palette, startPoint: .top, endPoint: .bottom)
     }
 }
 
 extension SolutionReliability {
     var color: Color {
         switch self {
-        case .exact: return Color(hex: 0x16A34A)
-        case .approximate: return Color(hex: 0xEA580C)
-        case .heuristic: return Color(hex: 0xCA8A04)
-        case .generated: return Color(hex: 0x7C3AED)
-        case .toolsOnly: return Color(hex: 0x0284C7)
-        case .unsupported: return Color(hex: 0x64748B)
+        case .exact: return Palette.success
+        case .generated: return Palette.accent
+        case .approximate, .heuristic, .toolsOnly, .unsupported: return Palette.inkSubtle
         }
     }
 
