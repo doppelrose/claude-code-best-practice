@@ -25,7 +25,7 @@ struct ReviewStage: View {
                 if let error = model.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Palette.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -35,7 +35,7 @@ struct ReviewStage: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) {
-            PrimaryButton(title: l("Решить", "Solve"), systemImage: "sparkles", colors: model.subject.palette + [Theme.brand[2]]) {
+            PrimaryButton(title: l("Решить", "Solve"), systemImage: "sparkles") {
                 isEditing = false
                 onSolve()
             }
@@ -94,21 +94,21 @@ struct ReviewStage: View {
         let percent = Int((confidence * 100).rounded())
         let (title, color): (String, Color) =
             confidence >= 0.85
-            ? (l("Распознано уверенно", "Recognized confidently"), .green)
+            ? (l("Распознано уверенно", "Recognized confidently"), Palette.success)
             : confidence >= 0.6
-                ? (l("Проверьте текст", "Please check the text"), .orange)
-                : (l("Распознано неуверенно — исправьте текст", "Low confidence — please fix the text"), .red)
+                ? (l("Проверьте текст", "Please check the text"), Palette.inkSubtle)
+                : (l("Распознано неуверенно — исправьте текст", "Low confidence — please fix the text"), Palette.inkSubtle)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: "text.viewfinder").foregroundStyle(color)
-                Text(title).font(.subheadline.weight(.semibold))
+                Text(title).font(.subheadline.weight(.medium)).foregroundStyle(Palette.ink)
                 Spacer()
-                Text("\(percent)%").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                Text("\(percent)%").font(.subheadline.monospacedDigit()).foregroundStyle(Palette.inkSubtle)
             }
             if model.usedMathPass {
                 Text(l("Найдены формулы — распознано в режиме без автозамены слов.", "Formulas detected — recognized without word autocorrection."))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.inkSubtle)
             }
         }
     }
@@ -116,7 +116,7 @@ struct ReviewStage: View {
     private var subjectPicker: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(l("Предмет", "Subject")).font(.headline)
+                Text(l("Предмет", "Subject")).font(.cardTitle)
                 Spacer()
                 if model.isSubjectManual {
                     Button(l("Определить автоматически", "Detect automatically")) {
@@ -126,7 +126,7 @@ struct ReviewStage: View {
                 } else {
                     Label(l("определён автоматически", "detected automatically"), systemImage: "wand.and.stars")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Palette.inkSubtle)
                 }
             }
             ScrollViewReader { proxy in
@@ -147,38 +147,22 @@ struct ReviewStage: View {
     }
 
     private func subjectChip(_ subject: Subject) -> some View {
-        let isSelected = model.subject == subject
-        return Button {
-            model.chooseSubject(subject)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: subject.symbolName).font(.caption.weight(.bold))
-                Text(subject.title(l)).font(.subheadline.weight(.semibold))
-            }
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background {
-                if isSelected {
-                    // Одна и та же «капсула» плавно переезжает между чипами.
-                    Capsule(style: .continuous)
-                        .fill(subject.gradient)
-                        .matchedGeometryEffect(id: "subject-chip", in: chipNamespace)
-                } else {
-                    Capsule(style: .continuous).fill(Color.primary.opacity(0.07))
-                }
-            }
-        }
-        .buttonStyle(.pressable)
+        FilterChip(
+            title: subject.title(l), systemImage: subject.symbolName, isSelected: model.subject == subject,
+            selectedBackground: {
+                // Одна и та же «капсула» плавно переезжает между чипами.
+                ChipSelection().matchedGeometryEffect(id: "subject-chip", in: chipNamespace)
+            },
+            action: { model.chooseSubject(subject) })
     }
 
     private var editor: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(l("Условие", "Task")).font(.headline)
+            Text(l("Условие", "Task")).font(.cardTitle)
             ZStack(alignment: .topLeading) {
                 if model.text.isEmpty {
                     Text(l("Введите или исправьте условие задания", "Type or correct the task"))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Palette.inkTertiary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 8)
                 }
@@ -191,13 +175,13 @@ struct ReviewStage: View {
             }
             .font(.body)
             .padding(12)
-            .contentCard(cornerRadius: 20)
+            .insetSurface(cornerRadius: Theme.cardRadius)
             .onChange(of: model.text) { _, _ in
                 model.textDidChange()
             }
             Text(l("Формулы пишите так: x^2 − 5x + 6 = 0, sqrt(16), 3/4.", "Write formulas like: x^2 − 5x + 6 = 0, sqrt(16), 3/4."))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.inkSubtle)
         }
     }
 }
@@ -246,7 +230,7 @@ struct ResultStage: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text(l("Условие", "Task")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(l("Условие", "Task")).font(.caption.weight(.semibold)).foregroundStyle(Palette.inkSubtle)
                 Text(model.text.trimmed)
                     .font(.callout)
                     .lineLimit(5)
@@ -257,7 +241,7 @@ struct ResultStage: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(cornerRadius: 22)
+        .glassCard()
     }
 
     private var actionBar: some View {
@@ -286,7 +270,7 @@ struct ResultStage: View {
             Image(systemName: systemImage).font(.system(size: 18, weight: .semibold))
             Text(title).font(.caption2.weight(.medium))
         }
-        .foregroundStyle(.primary)
+        .foregroundStyle(Palette.ink)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
