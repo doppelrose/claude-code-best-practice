@@ -22,11 +22,10 @@ enum LanguageModelError: Error, Sendable {
     }
 }
 
-/// Локальная языковая модель, работающая на устройстве.
+/// Языковая модель: нейросеть по API пользователя или системная модель Apple Intelligence.
 ///
-/// Это точка расширения: чтобы подключить новый тип моделей (другой формат, другой рантайм),
-/// достаточно реализовать этот протокол и зарегистрировать провайдер в `SolveCoordinator`.
-/// Сетевых провайдеров здесь нет намеренно — приложение не отправляет задания на серверы.
+/// Это точка расширения: чтобы подключить новый тип моделей, достаточно реализовать
+/// этот протокол и добавить провайдер в `SolveCoordinator.providers()`.
 protocol LanguageModelProvider: Sendable {
     /// Какой механизм указывается в решении.
     var engine: SolutionEngine { get }
@@ -36,6 +35,6 @@ protocol LanguageModelProvider: Sendable {
     /// Доступна ли модель прямо сейчас и почему нет.
     func availability(_ l: L10n) async -> ModelAvailability
 
-    /// Генерация ответа. Всё выполняется на устройстве.
-    func generate(instructions: String, prompt: String, maxTokens: Int) async throws -> String
+    /// Генерация ответа. `image` — выделенный фрагмент задания в JPEG (модели без зрения его игнорируют).
+    func generate(instructions: String, prompt: String, image: Data?, maxTokens: Int) async throws -> String
 }
