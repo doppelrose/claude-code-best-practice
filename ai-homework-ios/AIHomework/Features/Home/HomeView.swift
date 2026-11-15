@@ -184,7 +184,7 @@ struct HomeView: View {
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
-                                Text(subject.hasLocalEngine ? l("Точный решатель", "Exact solver") : l("Нужна модель", "Needs a model"))
+                                Text(subject.hasLocalEngine ? l("Точный решатель", "Exact solver") : l("Через нейросеть", "Via AI model"))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
@@ -267,8 +267,8 @@ struct HomeView: View {
             Image(systemName: "lock.shield.fill")
             Text(
                 l(
-                    "Фото и задания обрабатываются только на этом iPhone. Без регистрации, серверов и API-ключей.",
-                    "Photos and tasks are processed only on this iPhone. No sign-up, servers or API keys."))
+                    "Точные задачи решаются прямо на iPhone. Остальное — в вашей нейросети по API; ключ хранится в Связке ключей.",
+                    "Exact tasks are solved right on the iPhone. Everything else goes to your AI model via API; the key stays in the Keychain."))
         }
         .font(.caption)
         .foregroundStyle(.secondary)
