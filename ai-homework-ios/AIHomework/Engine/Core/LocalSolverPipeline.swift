@@ -57,29 +57,29 @@ struct LocalSolverPipeline: Sendable {
         return firstFailure
     }
 
-    /// Честное сообщение для случая, когда локальные алгоритмы не подошли, а языковой модели нет.
+    /// Честное сообщение для случая, когда точные алгоритмы не подошли, а нейросеть недоступна.
     func limitationMessage(for subject: Subject) -> Solution {
         let l = L10n(lang)
         let reason: String
         if subject.hasLocalEngine {
             reason = l(
-                "Локальные алгоритмы решают примеры, уравнения, неравенства, системы, производные, задачи «в одну формулу» и другие типовые вычисления. Это задание требует понимания текста и рассуждений — для него нужна локальная языковая модель, а она сейчас недоступна.",
-                "The local algorithms solve expressions, equations, inequalities, systems, derivatives, single-formula problems and other standard computations. This task requires understanding text and reasoning — it needs an on-device language model, which is not available right now."
+                "Точные алгоритмы на устройстве решают примеры, уравнения, неравенства, системы, производные, задачи «в одну формулу» и другие типовые вычисления. Это задание требует понимания текста и рассуждений — для него нужна нейросеть, а она сейчас недоступна.",
+                "The exact on-device algorithms solve expressions, equations, inequalities, systems, derivatives, single-formula problems and other standard computations. This task requires understanding text and reasoning — it needs an AI model, which is not available right now."
             )
         } else {
             reason = l(
-                "Для развёрнутого ответа по предмету «\(subject.title(l))» нужна локальная языковая модель, а она сейчас недоступна. Приложение не выдумывает ответы: ниже доступны только инструменты анализа текста, которые работают на устройстве.",
-                "A full answer in “\(subject.title(l))” needs an on-device language model, which is not available right now. The app does not make answers up: only the on-device text analysis tools are offered below."
+                "Для развёрнутого ответа по предмету «\(subject.title(l))» нужна нейросеть, а она сейчас недоступна. Приложение не выдумывает ответы: ниже доступны только инструменты анализа текста, которые работают на устройстве.",
+                "A full answer in “\(subject.title(l))” needs an AI model, which is not available right now. The app does not make answers up: only the on-device text analysis tools are offered below."
             )
         }
         return Solution.unsupported(
             subject: subject,
-            problemType: l("Нужна локальная языковая модель", "On-device language model required"),
+            problemType: l("Нужна нейросеть", "AI model required"),
             reason: reason,
             notes: [
                 l(
-                    "Подключить модель можно в «Настройки → Локальные модели»: системная модель Apple Intelligence (iOS 26+) или собственная модель Core ML.",
-                    "You can connect a model in Settings → On-device models: the system Apple Intelligence model (iOS 26+) or your own Core ML model."
+                    "Подключите нейросеть в «Настройки → Нейросеть по API» (адрес, ключ и модель вашего сервиса). Без интернета используется Apple Intelligence (iOS 26+), если он доступен на устройстве.",
+                    "Connect a model in Settings → AI model via API (your service's address, key and model). Offline, Apple Intelligence (iOS 26+) is used when available on the device."
                 )
             ])
     }
