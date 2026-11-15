@@ -64,6 +64,9 @@ struct SettingsView: View {
                         ))
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Palette.canvas)
+            .tint(Palette.accent)
             .navigationTitle(l("Настройки", "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -103,7 +106,7 @@ struct SettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(l("Адрес API", "API address")).font(.caption).foregroundStyle(.secondary)
+                Text(l("Адрес API", "API address")).font(.caption).foregroundStyle(Palette.inkSubtle)
                 TextField("https://api.example.com/v1", text: Bindable(settings).data.apiBaseURL)
                     .keyboardType(.URL)
                     .textContentType(.URL)
@@ -112,7 +115,7 @@ struct SettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(l("Ключ API", "API key")).font(.caption).foregroundStyle(.secondary)
+                Text(l("Ключ API", "API key")).font(.caption).foregroundStyle(Palette.inkSubtle)
                 HStack {
                     Group {
                         if isKeyVisible {
@@ -127,7 +130,7 @@ struct SettingsView: View {
                         isKeyVisible.toggle()
                     } label: {
                         Image(systemName: isKeyVisible ? "eye.slash" : "eye")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Palette.inkSubtle)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(l("Показать ключ", "Show key"))
@@ -135,7 +138,7 @@ struct SettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(l("Модель", "Model")).font(.caption).foregroundStyle(.secondary)
+                Text(l("Модель", "Model")).font(.caption).foregroundStyle(Palette.inkSubtle)
                 HStack {
                     TextField(l("например, claude-opus-5-5", "e.g. claude-opus-5-5"), text: Bindable(settings).data.apiModel)
                         .textInputAutocapitalization(.never)
@@ -180,11 +183,11 @@ struct SettingsView: View {
             case .success(let message):
                 Label(message, systemImage: "checkmark.circle.fill")
                     .font(.footnote)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Palette.success)
             case .failure(let message):
                 Label(message, systemImage: "xmark.octagon.fill")
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Palette.inkMuted)
             case .idle, .checking:
                 EmptyView()
             }
@@ -250,11 +253,11 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Label("Apple Intelligence", systemImage: "sparkles")
-                        .font(.headline)
+                        .font(.cardTitle)
                     Spacer()
                     if let systemModel {
                         Circle()
-                            .fill(systemModel.isAvailable ? Color.green : Color.orange)
+                            .fill(systemModel.isAvailable ? Palette.success : Palette.inkTertiary)
                             .frame(width: 10, height: 10)
                     } else {
                         ProgressView()
@@ -264,7 +267,7 @@ struct SettingsView: View {
                     Text(systemModel.title).font(.subheadline.weight(.semibold))
                     Text(systemModel.detail)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Palette.inkSubtle)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -287,7 +290,7 @@ struct SettingsView: View {
         Section {
             VStack(alignment: .leading, spacing: 10) {
                 Label(l("Скриншот и выделение одной кнопкой", "Screenshot and select with one press"), systemImage: "button.programmable")
-                    .font(.headline)
+                    .font(.cardTitle)
                 instruction(1, l("Откройте приложение «Команды» и нажмите «+».", "Open the Shortcuts app and tap “+”."))
                 instruction(2, l("Добавьте действие «Сделать снимок экрана».", "Add the “Take Screenshot” action."))
                 instruction(
@@ -308,7 +311,7 @@ struct SettingsView: View {
                     )
                 )
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.inkSubtle)
             }
             .padding(.vertical, 4)
             ShortcutsLink()
@@ -329,10 +332,10 @@ struct SettingsView: View {
     private func instruction(_ number: Int, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(number)")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
+                .font(.system(.caption, design: .monospaced).weight(.medium))
+                .foregroundStyle(Palette.inkMuted)
                 .frame(width: 22, height: 22)
-                .background(Circle().fill(Color.orange))
+                .modifier(SurfaceStyle(shape: Circle(), level: .three, strongBorder: true))
             Text(text)
                 .font(.subheadline)
                 .fixedSize(horizontal: false, vertical: true)
@@ -354,7 +357,7 @@ struct SettingsView: View {
         Label {
             Text(text).font(.subheadline)
         } icon: {
-            Image(systemName: systemImage).foregroundStyle(.green)
+            Image(systemName: systemImage).foregroundStyle(Palette.inkSubtle)
         }
     }
 
