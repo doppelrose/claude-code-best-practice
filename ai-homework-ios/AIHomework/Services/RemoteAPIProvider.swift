@@ -56,7 +56,28 @@ struct RemoteAPIProvider: LanguageModelProvider {
         return RemoteAPI.parseModels(data: try await send(request))
     }
 
+    /// Сетевые сбои, после которых запрос имеет смысл повторить: оборванное соединение
+    /// (часто после переключения VPN или сети), сброс или недоступность хоста.
+    private static let retryableCodes: [URLError.Code] = [
+        .networkConnectionLost, .cannotConnectToHost, .secureConnectionFailed, .dnsLookupFailed, .cannotFindHost,
+    ]
+
     static func send(_ request: RemoteAPIRequest) async throws -> Data {
+        var attempt = 0
+        while true {
+            do {
+                return try await sendOnce(request)
+            } catch let error as URLError where retryableCodes.contains(error.code) && attempt < 2 {
+                attempt += 1
+                try? await Task.sleep(for: .milliseconds(700 * attempt))
+                if Task.isCancelled { throw LanguageModelError.cancelled }
+            } catch let error as URLError {
+                throw RemoteAPIError.offline(error.localizedDescription)
+            }
+        }
+    }
+
+    private static func sendOnce(_ request: RemoteAPIRequest) async throws -> Data {
         var urlRequest = URLRequest(url: request.url, timeoutInterval: timeout)
         urlRequest.httpMethod = request.method
         urlRequest.httpBody = request.body
@@ -71,6 +92,9 @@ struct RemoteAPIProvider: LanguageModelProvider {
             throw LanguageModelError.cancelled
         } catch let error as URLError where error.code == .cancelled {
             throw LanguageModelError.cancelled
+        } catch let error as URLError where retryableCodes.contains(error.code) {
+            // Пробрасываем как есть — `send` повторит запрос.
+            throw error
         } catch {
             throw RemoteAPIError.offline(error.localizedDescription)
         }
