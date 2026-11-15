@@ -31,6 +31,7 @@ struct SolveFlowView: View {
             }
         }
         .onAppear {
+            model.attach(context)
             model.onAppear()
             if model.consumeAutoSolve() {
                 model.solve(context: context)
@@ -155,10 +156,8 @@ private struct SelectingStage: View {
     var body: some View {
         VStack(spacing: 14) {
             Label(
-                model.selection == nil
-                    ? l("Обведите пальцем нужную часть задания", "Circle the part of the task with your finger")
-                    : l("Потяните за углы, чтобы уточнить область", "Drag the corners to adjust the area"),
-                systemImage: model.selection == nil ? "hand.draw.fill" : "crop"
+                l("Обведите пальцем задание — решение начнётся сразу", "Circle the task with your finger — solving starts right away"),
+                systemImage: "hand.draw.fill"
             )
             .font(.subheadline.weight(.medium))
             .padding(.horizontal, 16)
@@ -167,8 +166,11 @@ private struct SelectingStage: View {
             .contentTransition(.opacity)
 
             if let image = model.image {
-                RegionSelectionView(image: image, selection: $model.selection, l: l)
-                    .padding(.horizontal, 12)
+                RegionSelectionView(image: image, selection: $model.selection, l: l) {
+                    // Как Circle to Search: обвели — сразу распознаём и решаем.
+                    model.recognize(useSelection: true)
+                }
+                .padding(.horizontal, 12)
             }
 
             if let error = model.errorMessage {
@@ -182,7 +184,7 @@ private struct SelectingStage: View {
 
             VStack(spacing: 10) {
                 if model.selection != nil {
-                    PrimaryButton(title: l("Распознать выделенное", "Recognize the selection"), systemImage: "viewfinder") {
+                    PrimaryButton(title: l("Решить выделенное", "Solve the selection"), systemImage: "sparkles") {
                         model.recognize(useSelection: true)
                     }
                     HStack(spacing: 10) {
@@ -195,7 +197,7 @@ private struct SelectingStage: View {
                         }
                     }
                 } else {
-                    PrimaryButton(title: l("Распознать всё фото", "Recognize the whole photo"), systemImage: "text.viewfinder") {
+                    PrimaryButton(title: l("Решить всё изображение", "Solve the whole image"), systemImage: "sparkles") {
                         model.recognize(useSelection: false)
                     }
                     GlassButton(title: l("Ввести условие вручную", "Type the task manually"), systemImage: "keyboard") {
