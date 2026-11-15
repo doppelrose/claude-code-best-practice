@@ -9,15 +9,18 @@ struct SectionHeader: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
-                .font(.title3.weight(.bold))
+                .font(.headlineTitle)
+                .tracking(-0.3)
+                .foregroundStyle(Palette.ink)
             Spacer()
             if let actionTitle, let action {
                 Button(action: action) {
                     HStack(spacing: 3) {
                         Text(actionTitle)
-                        Image(systemName: "chevron.right").font(.caption.weight(.bold))
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                     }
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.inkSubtle)
                 }
                 .buttonStyle(.pressable)
             }
@@ -25,21 +28,84 @@ struct SectionHeader: View {
     }
 }
 
-/// Значок предмета в цветном скруглённом квадрате.
+/// Значок предмета: монохромная плитка с тонкой рамкой.
 struct SubjectIcon: View {
     let subject: Subject
     var size: CGFloat = 44
 
     var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
-            .fill(subject.gradient)
+        Image(systemName: subject.symbolName)
+            .font(.system(size: size * 0.4, weight: .medium))
+            .foregroundStyle(Palette.inkMuted)
             .frame(width: size, height: size)
-            .overlay {
-                Image(systemName: subject.symbolName)
-                    .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(.white)
+            .modifier(
+                SurfaceStyle(shape: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous), level: .two))
+    }
+}
+
+/// Монохромная плитка со значком для карточек и быстрых действий.
+struct CardIcon: View {
+    let systemImage: String
+    var size: CGFloat = 44
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: size * 0.42, weight: .regular))
+            .foregroundStyle(Palette.inkMuted)
+            .frame(width: size, height: size)
+            .modifier(
+                SurfaceStyle(shape: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous), level: .two))
+    }
+}
+
+/// Чип-фильтр. Выбранный чип «приподнят» — светлее поверхность и рамка (правило Linear),
+/// невыбранный — прозрачный с тонкой рамкой. Цвет не используется.
+struct FilterChip<Background: View>: View {
+    let title: String
+    var systemImage: String?
+    let isSelected: Bool
+    /// Фон выбранного чипа — сюда передают поверхность с `matchedGeometryEffect`,
+    /// чтобы выделение плавно переезжало между чипами.
+    @ViewBuilder var selectedBackground: () -> Background
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let systemImage {
+                    Image(systemName: systemImage).font(.caption.weight(.medium))
+                }
+                Text(title).font(.footnote.weight(.medium))
             }
-            .shadow(color: subject.tint.opacity(0.35), radius: size * 0.2, x: 0, y: size * 0.1)
+            .foregroundStyle(isSelected ? Palette.ink : Palette.inkSubtle)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background {
+                if isSelected {
+                    selectedBackground()
+                } else {
+                    Capsule(style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1)
+                }
+            }
+        }
+        .buttonStyle(.pressable)
+    }
+}
+
+extension FilterChip where Background == AnyView {
+    init(title: String, systemImage: String? = nil, isSelected: Bool, action: @escaping () -> Void) {
+        self.init(
+            title: title, systemImage: systemImage, isSelected: isSelected,
+            selectedBackground: { AnyView(ChipSelection()) }, action: action)
+    }
+}
+
+/// Поверхность выбранного чипа.
+struct ChipSelection: View {
+    var body: some View {
+        Capsule(style: .continuous)
+            .fill(Palette.surface3)
+            .overlay { Capsule(style: .continuous).strokeBorder(Palette.hairlineStrong, lineWidth: 1) }
     }
 }
 
@@ -50,13 +116,13 @@ struct SubjectBadge: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: subject.symbolName).font(.caption.weight(.bold))
-            Text(subject.title(l)).font(.caption.weight(.semibold))
+            Image(systemName: subject.symbolName).font(.caption.weight(.medium))
+            Text(subject.title(l)).font(.caption.weight(.medium))
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Palette.inkMuted)
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Capsule(style: .continuous).fill(subject.gradient))
+        .padding(.vertical, 5)
+        .glassCapsule()
     }
 }
 
@@ -67,20 +133,22 @@ struct ReliabilityBadge: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: reliability.symbolName).font(.caption.weight(.bold))
-            Text(reliability.title(l)).font(.caption.weight(.semibold))
+            Image(systemName: reliability.symbolName).font(.caption.weight(.medium))
+                .foregroundStyle(reliability.color)
+            Text(reliability.title(l)).font(.caption.weight(.medium))
+                .foregroundStyle(Palette.inkMuted)
         }
-        .foregroundStyle(reliability.color)
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Capsule(style: .continuous).fill(reliability.color.opacity(0.14)))
+        .padding(.vertical, 5)
+        .glassCapsule()
     }
 }
 
-/// Блок с формулой: моноширинный шрифт, тонированный фон, текст можно выделить.
+/// Блок с формулой: моноширинный шрифт, вложенная поверхность, текст можно выделить.
 struct FormulaBlock: View {
     let text: String
-    var tint: Color = .accentColor
+    /// Оставлено для совместимости: формулы больше не тонируются.
+    var tint: Color = Palette.accent
     var emphasized = false
 
     var body: some View {
@@ -90,12 +158,10 @@ struct FormulaBlock: View {
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(Palette.ink)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-            .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(tint.opacity(0.1))
-            }
+            .insetSurface()
     }
 }
 
@@ -148,8 +214,8 @@ struct Toast: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: systemImage)
-            Text(message).font(.subheadline.weight(.medium))
+            Image(systemName: systemImage).foregroundStyle(Palette.success)
+            Text(message).font(.subheadline.weight(.medium)).foregroundStyle(Palette.ink)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
@@ -167,10 +233,10 @@ struct StaggeredAppearance: ViewModifier {
     func body(content: Content) -> some View {
         content
             .opacity(isVisible ? 1 : 0)
-            .offset(y: isVisible || reduceMotion ? 0 : 18)
-            .scaleEffect(isVisible || reduceMotion ? 1 : 0.97, anchor: .top)
+            .offset(y: isVisible || reduceMotion ? 0 : 8)
+            .scaleEffect(isVisible || reduceMotion ? 1 : 0.99, anchor: .top)
             .onAppear {
-                withAnimation(Theme.spring.delay(reduceMotion ? 0 : min(Double(index) * 0.07, 0.6))) {
+                withAnimation(Theme.gentle.delay(reduceMotion ? 0 : min(Double(index) * 0.06, 0.5))) {
                     isVisible = true
                 }
             }
@@ -191,13 +257,13 @@ struct ShimmerBar: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-            .fill(Color.primary.opacity(0.08))
+            .fill(Palette.surface3)
             .frame(width: width, height: height)
             .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
             .overlay {
                 GeometryReader { proxy in
                     LinearGradient(
-                        colors: [Color.white.opacity(0), Color.white.opacity(0.45), Color.white.opacity(0)],
+                        colors: [Palette.hairlineStrong.opacity(0), Palette.hairlineStrong, Palette.hairlineStrong.opacity(0)],
                         startPoint: .leading, endPoint: .trailing
                     )
                     .frame(width: proxy.size.width * 0.5)
@@ -206,7 +272,7 @@ struct ShimmerBar: View {
                 .clipShape(RoundedRectangle(cornerRadius: height / 2, style: .continuous))
             }
             .onAppear {
-                withAnimation(.linear(duration: 1.3).repeatForever(autoreverses: false)) {
+                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: false)) {
                     phase = 1.2
                 }
             }
