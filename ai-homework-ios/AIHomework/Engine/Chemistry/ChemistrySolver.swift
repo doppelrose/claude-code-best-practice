@@ -5,8 +5,10 @@ struct ChemicalFormula: Sendable, Hashable {
     let text: String
     let composition: [String: Int]
     let order: [String]
+    /// Заряд иона (0 — нейтральная частица): `SO₄²⁻` → −2.
+    var charge: Int = 0
 
-    /// Запись с подстрочными индексами: `H₂SO₄`.
+    /// Запись с подстрочными индексами и зарядом: `H₂SO₄`, `SO₄²⁻`.
     var display: String {
         let subscripts: [Character: Character] = [
             "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
@@ -23,6 +25,13 @@ struct ChemicalFormula: Sendable, Hashable {
                 result.append(c)
                 if !c.isNumber { previousIsCoefficientPosition = false }
             }
+        }
+        if charge != 0 {
+            let superscripts: [Character: Character] = [
+                "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+            ]
+            if abs(charge) != 1 { result += String(String(abs(charge)).map { superscripts[$0] ?? $0 }) }
+            result += charge > 0 ? "⁺" : "⁻"
         }
         return result
     }
@@ -89,6 +98,9 @@ struct ChemicalFormulaParser {
             digits.append(chars[pos])
             pos += 1
         }
+        // Индекс с ведущим нулём («S04», «C02») — ошибка распознавания, а не число:
+        // 0 не проходит проверку `count > 0`, и формула не разбирается.
+        if digits.first == "0" { return 0 }
         return digits.isEmpty ? nil : Int(digits)
     }
 
@@ -117,7 +129,7 @@ struct ChemicalFormulaParser {
                 // Кристаллогидрат: CuSO4*5H2O
                 pos += 1
                 let multiplier = readNumber() ?? 1
-                guard let rest = parseSequence() else { return nil }
+                guard multiplier > 0, let rest = parseSequence() else { return nil }
                 merge(&result, rest, times: multiplier)
                 parsedAnything = true
             } else if c.isASCII, c.isUppercase {
@@ -164,26 +176,79 @@ struct ChemistrySolver: Sendable {
 
     // MARK: - Entry point
 
-    func solve(_ text: String) -> Solution? {
+    /// Текст, подготовленный к поиску формул.
+    private struct Prepared {
+        var text: String
+        var corrections: [ChemistryChecks.ZeroCorrection]
+        var unresolved: [String]
+    }
+
+    private func prepare(_ text: String) -> Prepared {
         var prepared = latinizeFormulaTokens(ChemicalFormulaParser.normalize(text))
-        // «M(H2SO4)», «ω(O)», «n(NaOH)» — снимаем обозначение величины, оставляя формулу.
-        prepared = Rx.replace(
-            "(?<![A-Za-z])(?:Mr|Ar|M|n|m|V|N|w|W|ω)\\s*\\(([^()]*(?:\\([^()]*\\)[^()]*)*)\\)", in: prepared, with: " $1 ",
-            caseInsensitive: false)
+        prepared = prepared.replacingOccurrences(of: "↓", with: "").replacingOccurrences(of: "↑", with: "")
+            .replacingOccurrences(of: "\u{2212}", with: "-").replacingOccurrences(of: "–", with: "-")
+        let zeros = ChemistryChecks.correctZeros(in: prepared)
+        prepared = ChemistryChecks.canonicalizeIons(zeros.text)
+        return Prepared(text: prepared, corrections: zeros.corrections, unresolved: zeros.unresolved)
+    }
+
+    func solve(_ text: String) -> Solution? {
+        let analysis = prepare(text)
         let lower = text.lowercased()
+        let explicitMolar =
+            lower.containsAny(["молярн", "молекулярн", "molar", "molecular", "formula mass", "formula weight"])
+            || Rx.contains("(?<![A-Za-z])(?:Mr|M)\\s*\\(", in: analysis.text, caseInsensitive: false)
+        // «M(H2SO4)», «ω(O)», «n(NaOH)» — снимаем обозначение величины, оставляя формулу.
+        let prepared = Rx.replace(
+            "(?<![A-Za-z])(?:Mr|Ar|M|n|m|V|N|w|W|ω)\\s*\\(([^()]*(?:\\([^()]*\\)[^()]*)*)\\)", in: analysis.text, with: " $1 ",
+            caseInsensitive: false)
+
+        // Исправление OCR («H2S04» → H2SO4) делает ответ эвристическим: условие прочитано не дословно.
+        let caveat: String? =
+            analysis.corrections.isEmpty
+            ? nil
+            : analysis.corrections.map { correction in
+                l(
+                    "В записи «\(correction.original)» цифра 0 принята за букву O: \(correction.corrected.display). Проверьте распознанный текст.",
+                    "In “\(correction.original)” the digit 0 was read as the letter O: \(correction.corrected.display). Check the recognized text.")
+            }.joined(separator: " ")
+        func finish(_ solution: Solution) -> Solution {
+            caveat.map { solution.withCorrectedInput(note: $0) } ?? solution
+        }
 
         if let reaction = findReaction(in: prepared) {
-            return balance(reaction)
+            return finish(balance(reaction))
         }
-        let formulas = findFormulas(in: prepared)
-        guard let formula = formulas.first else { return nil }
+        if let token = analysis.unresolved.first {
+            return Solution.unsupported(
+                subject: .chemistry, problemType: l("Химия", "Chemistry"),
+                reason: l(
+                    "В записи «\(token)» есть цифра 0 там, где обычно стоит буква O. Восстановить формулу уверенно не получилось — проверьте распознанный текст.",
+                    "“\(token)” has the digit 0 where the letter O usually is. The formula could not be restored reliably — check the recognized text."),
+                engine: .chemistry)
+        }
+        let hasIons = Rx.contains("[A-Za-z0-9)]\\^\\d*[+-]", in: prepared, caseInsensitive: false)
+        let ionRefusal = Solution.unsupported(
+            subject: .chemistry, problemType: l("Ионы", "Ions"),
+            reason: l(
+                "В условии есть ионы с зарядами, но уравнение реакции не распознано. Запишите ионное уравнение целиком, например: Cu²⁺ + OH⁻ = Cu(OH)₂.",
+                "The task contains charged ions, but no reaction equation was recognized. Write the whole ionic equation, e.g. Cu²⁺ + OH⁻ = Cu(OH)₂."),
+            engine: .chemistry)
+
+        let formulas = findFormulas(in: prepared, context: lower, explicit: explicitMolar)
+        guard let formula = formulas.first else { return hasIons ? ionRefusal : nil }
 
         do {
-            if let solution = try solveAmount(formula, lower: lower, prepared: prepared) { return solution }
-            if lower.containsAny(["массов", "mass fraction", "mass percent", "percent composition", "percentage composition", "ω", "процентн"]) {
-                return try massFractions(formula, lower: lower)
+            if let solution = try solveAmount(formula, lower: lower, prepared: prepared) {
+                return finish(checked(solution, formulas: [formula]))
             }
-            return try molarMass(formula)
+            if lower.containsAny(["массов", "mass fraction", "mass percent", "percent composition", "percentage composition", "ω", "процентн"]) {
+                return finish(checked(try massFractions(formula, lower: lower), formulas: [formula]))
+            }
+            // Молярную массу считаем только по явному запросу или если в условии одна формула:
+            // иначе «Cu2+» превращается в «M(Cu₂)», а отрезок BC — в «M(BC)».
+            guard explicitMolar || (!hasIons && isBareFormula(prepared)) else { return hasIons ? ionRefusal : nil }
+            return finish(checked(try molarMass(formula), formulas: [formula]))
         } catch let error as MathError {
             return Solution.unsupported(subject: .chemistry, problemType: l("Химия", "Chemistry"), reason: error.message(l), engine: .chemistry)
         } catch {
@@ -191,12 +256,32 @@ struct ChemistrySolver: Sendable {
         }
     }
 
-    /// Признаки химии в тексте (для определения предмета). Аббревиатуры вроде «OK» или «BC»
-    /// формально состоят из символов элементов, поэтому требуем цифру или строчную букву.
+    /// Предупреждение о формулах, не согласующихся с типичными степенями окисления (`NaCl2`).
+    private func checked(_ solution: Solution, formulas: [ChemicalFormula]) -> Solution {
+        let suspicious = formulas.filter { ChemistryChecks.binaryCompoundIsPlausible($0) == false }
+        guard !suspicious.isEmpty, solution.isSolved else { return solution }
+        let names = suspicious.map(\.display).joined(separator: ", ")
+        return solution.withCorrectedInput(
+            note: l(
+                "Формула \(names) не согласуется с типичными степенями окисления элементов — такого вещества, скорее всего, нет. Проверьте запись формулы.",
+                "The formula \(names) does not match the usual oxidation states of its elements — such a substance most likely does not exist. Check the formula."
+            ))
+    }
+
+    /// В тексте нет ничего, кроме формул (и знаков препинания): «H2SO4», «CO2?».
+    private func isBareFormula(_ text: String) -> Bool {
+        let rest = Rx.replace(ChemistrySolver.formulaPattern, in: text, with: " ", caseInsensitive: false)
+        return !rest.contains { $0.isLetter || $0.isNumber }
+    }
+
+    /// Признаки химии в тексте (для определения предмета и конвейера). Аббревиатуры вроде «OK»
+    /// или «BC» формально состоят из символов элементов, поэтому требуем цифру или строчную букву.
     func evidence(in text: String) -> FormulaEvidence {
-        let prepared = latinizeFormulaTokens(ChemicalFormulaParser.normalize(text))
+        let prepared = prepare(text).text
         if findReaction(in: prepared) != nil { return .reaction }
-        let convincing = findFormulas(in: prepared).contains { formula in
+        // В задачах на системы счисления «1F₁₆», «BC₁₆» — числа, а не формулы.
+        if Rx.contains("двоичн|троичн|восьмеричн|шестнадцат|счислени|binary|octal|hexadecimal|\\bbase\\s+\\d", in: text) { return .none }
+        let convincing = findFormulas(in: prepared, context: text.lowercased(), explicit: false).contains { formula in
             formula.text.contains { $0.isNumber || $0.isLowercase }
         }
         return convincing ? .formula : .none
@@ -241,7 +326,22 @@ struct ChemistrySolver: Sendable {
         "P", "S", "C", "B", "F", "H", "O",
     ]
 
-    private func findFormulas(in text: String) -> [ChemicalFormula] {
+    /// Слова, указывающие, что речь о веществе.
+    private static let chemistryContext = [
+        "молярн", "молекул", "вещест", "формул", "реакц", "оксид", "кислот", "соединен", "моль", "газ", "химич", "массов",
+        "molar", "molecul", "substance", "compound", "formula", "reaction", "oxide", "acid", "mole", "gas", "chemical", "mass",
+    ]
+
+    /// Слова геометрии: в «отрезке BC» и «треугольнике ABC» заглавные буквы — точки, а не элементы.
+    private static let geometryContext = [
+        "треугольник", "отрез", "угол", "угла", "углы", "прям", "точк", "окружност", "квадрат", "ромб", "трапеци",
+        "параллелограмм", "вершин", "сторон", "периметр", "площад", "медиан", "биссектрис", "высот", "хорд", "радиус",
+        "triangle", "segment", "angle", "line", "point", "circle", "perimeter", "area", "side", "square",
+    ]
+
+    private func findFormulas(in text: String, context lower: String, explicit: Bool) -> [ChemicalFormula] {
+        let chemical = explicit || lower.containsAny(ChemistrySolver.chemistryContext) || isBareFormula(text)
+        let geometric = lower.containsAny(ChemistrySolver.geometryContext)
         var result: [ChemicalFormula] = []
         for match in Rx.matches(ChemistrySolver.formulaPattern, in: text, caseInsensitive: false) {
             let token = match[1]
@@ -251,6 +351,11 @@ struct ChemistrySolver: Sendable {
             guard formula.atomCount >= 2 || hasDigit else { continue }
             // Слово из одной заглавной и строчных букв без цифр («Cu» — допустимо, «Find» — отсеяно выше).
             if !hasDigit, formula.order.count == 1 { continue }
+            // Только заглавные буквы без цифр («BC», «CO»): формула лишь в химическом контексте и не в геометрии.
+            let onlyCapitals = !token.contains { $0.isNumber || $0.isLowercase }
+            if onlyCapitals, !chemical || geometric { continue }
+            // «FF₁₆», «AA»: одинаковые символы подряд в формулах не пишут (пишут F₂) — это число или обозначение.
+            if Rx.contains("([A-Z][a-z]?)\\1(?![a-z])", in: token, caseInsensitive: false) { continue }
             if !result.contains(formula) { result.append(formula) }
         }
         return result
@@ -492,22 +597,25 @@ struct ChemistrySolver: Sendable {
             .replacingOccurrences(of: "⟶", with: "→").replacingOccurrences(of: "⇄", with: "→").replacingOccurrences(of: "↔", with: "→")
             .replacingOccurrences(of: "—>", with: "→").replacingOccurrences(of: "−>", with: "→")
         for line in unified.components(separatedBy: .newlines) {
-            // Берём самую длинную цепочку «формула + формула → формула».
-            let term = "\\d*\\s*(?:[A-Z][a-z]?\\d*|\\((?:[A-Z][a-z]?\\d*)+\\)\\d*)+"
+            // Берём самую длинную цепочку «формула + формула → формула». Ионы записаны как `Cu^2+`.
+            let body = "(?:[A-Z][a-z]?\\d*|\\((?:[A-Z][a-z]?\\d*)+\\)\\d*)+"
+            let term = "\\d*\\s*\(body)(?:\\^\\d*[+-])?"
             let side = "\(term)(?:\\s*\\+\\s*\(term))*"
             let pattern = "(?<![A-Za-z])(\(side))\\s*(?:→|=)\\s*(\(side))(?![a-z])"
             for match in Rx.matches(pattern, in: line, caseInsensitive: false) {
                 var coefficients: [Int] = []
                 func parseSide(_ text: String) -> [ChemicalFormula]? {
                     var formulas: [ChemicalFormula] = []
-                    for piece in text.components(separatedBy: "+") {
-                        let trimmed = piece.trimmed
-                        let digits = String(trimmed.prefix(while: { $0.isNumber }))
-                        let body = String(trimmed.dropFirst(digits.count)).trimmed
-                        guard let formula = ChemicalFormulaParser.parse(body) else { return nil }
+                    let piece = "(\\d*)\\s*(\(body)(?:\\^\\d*[+-])?)"
+                    var rest = text
+                    for found in Rx.matches(piece, in: text, caseInsensitive: false) {
+                        guard let formula = ChemistryChecks.parseSpecies(found[2]) else { return nil }
                         formulas.append(formula)
-                        coefficients.append(Int(digits) ?? 1)
+                        coefficients.append(Int(found[1]) ?? 1)
+                        if let range = rest.range(of: found[0]) { rest.removeSubrange(range) }
                     }
+                    // Между веществами — только «+» и пробелы.
+                    guard !formulas.isEmpty, rest.allSatisfy({ $0 == "+" || $0.isWhitespace }) else { return nil }
                     return formulas
                 }
                 guard let reactants = parseSide(match[1]), let products = parseSide(match[2]) else { continue }
@@ -563,6 +671,13 @@ struct ChemistrySolver: Sendable {
                     let count = formula.composition[element] ?? 0
                     return Rational(index < reactantCount ? count : -count)
                 }
+            }
+            // Ионное уравнение: суммарный заряд слева и справа тоже одинаков.
+            let hasCharges = species.contains { $0.charge != 0 }
+            if hasCharges {
+                matrix.append(species.enumerated().map { index, formula in
+                    Rational(index < reactantCount ? formula.charge : -formula.charge)
+                })
             }
             let columns = species.count
             var pivotColumns: [Int] = []
@@ -631,6 +746,18 @@ struct ChemistrySolver: Sendable {
                 let afterRight = total(reactantCount..<columns, integers)
                 countsAfter.append("\(element): \(afterLeft) = \(afterRight) ✓")
             }
+            if hasCharges {
+                func charge(_ range: Range<Int>, _ coefficients: [Int]) -> Int {
+                    range.reduce(0) { $0 + coefficients[$1] * species[$1].charge }
+                }
+                let ones = [Int](repeating: 1, count: columns)
+                let label = l("заряд", "charge")
+                let beforeLeft = charge(0..<reactantCount, ones)
+                let beforeRight = charge(reactantCount..<columns, ones)
+                countsBefore.append("\(label): \(fmt.integer(beforeLeft)) \(beforeLeft == beforeRight ? "=" : "≠") \(fmt.integer(beforeRight))")
+                countsAfter.append(
+                    "\(label): \(fmt.integer(charge(0..<reactantCount, integers))) = \(fmt.integer(charge(reactantCount..<columns, integers))) ✓")
+            }
 
             let steps = [
                 SolutionStep(l("Запишем схему реакции", "Write the reaction scheme"), formula: skeleton),
@@ -651,13 +778,23 @@ struct ChemistrySolver: Sendable {
             if alreadyBalanced {
                 notes.append(l("Коэффициенты в условии уже расставлены верно.", "The coefficients in the task are already correct."))
             }
-            return Solution(
+            var result = Solution(
                 subject: .chemistry, problemType: title, interpretedProblem: skeleton, answer: balanced,
                 explanation: l(
                     "Коэффициенты ставят перед формулами так, чтобы атомов каждого элемента слева и справа стало поровну. Индексы внутри формул менять нельзя.",
                     "Coefficients are placed in front of formulas so that each element has equal numbers of atoms on both sides. Subscripts inside formulas must not be changed."
                 ),
                 steps: steps, reliability: .exact, engine: .chemistry, notes: notes)
+            // Уравнять можно и то, что в действительности не реагирует: предупреждаем и снимаем метку «точно».
+            if let metal = ChemistryChecks.metalThatCannotDisplaceHydrogen(reactants: reaction.reactants, products: reaction.products) {
+                let name = PeriodicTable.element(metal)?.name(l).lowercased() ?? metal
+                result = result.withCorrectedInput(
+                    note: l(
+                        "Реакция в таком виде на практике не идёт: \(name) (\(metal)) стоит в ряду активности металлов правее водорода и не вытесняет водород из кислот и воды. Коэффициенты расставлены только формально.",
+                        "In practice this reaction does not occur: \(name) (\(metal)) is to the right of hydrogen in the metal activity series and does not displace hydrogen from acids or water. The coefficients are balanced only formally."
+                    ))
+            }
+            return checked(result, formulas: species)
         } catch {
             return fail(l("Числа слишком велики для расчёта коэффициентов.", "The numbers are too large to compute the coefficients."))
         }
