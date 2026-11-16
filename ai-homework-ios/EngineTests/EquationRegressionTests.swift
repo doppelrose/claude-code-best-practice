@@ -272,3 +272,12 @@ final class EquationRegressionTests: XCTestCase {
         XCTAssertEqual(try? solveEquation("sin(x) = 2").answer, "Действительных корней нет")
     }
 }
+
+/// Сквозная проверка через решатель приложения: «≠» доходит до InequalitySolver.
+final class NotEqualIntegrationTests: XCTestCase {
+    func testNotEqualIsSolvedFromText() {
+        let solution = LocalSolverPipeline(lang: .ru).solve("2x + 1 ≠ 5", subject: .math)
+        XCTAssertEqual(solution?.isSolved, true)
+        XCTAssertTrue(solution?.answer.contains("2") ?? false, solution?.answer ?? "nil")
+    }
+}
