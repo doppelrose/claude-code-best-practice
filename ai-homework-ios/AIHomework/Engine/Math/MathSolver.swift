@@ -447,8 +447,9 @@ struct MathSolver: Sendable {
                 answer: outcome.answer, explanation: outcome.explanation, steps: outcome.steps, formulas: outcome.formulas,
                 reliability: outcome.isApproximate ? .approximate : .exact, engine: .math, notes: notes + outcome.notes)
         }
-        guard relation.isInequality else {
-            throw MathError.unsupported(detail: l("Знак «≠» не поддерживается.", "The “≠” sign is not supported."))
+        // «≠» решает InequalitySolver: подходят все точки, кроме корней соответствующего уравнения.
+        guard relation.isInequality || relation == .ne else {
+            throw MathError.unsupported(detail: l("Этот знак сравнения не поддерживается.", "This comparison sign is not supported."))
         }
         let outcome = try InequalitySolver(lang: lang, formatter: fmt).solve(lhs: lhs, rhs: rhs, relation: relation, variable: variable)
         return Solution(
