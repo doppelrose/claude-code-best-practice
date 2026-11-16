@@ -26,13 +26,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "The camera is used to take a photo of a homework problem. Photos are processed on this device."
+            "value" : "The camera is used to take a photo of a homework problem. The text is recognized on this device. The image is sent to your AI model via API only if you turn this on in Settings."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Камера нужна, чтобы сфотографировать задание. Фотографии обрабатываются на этом устройстве."
+            "value" : "Камера нужна, чтобы сфотографировать задание. Текст распознаётся на этом устройстве. Изображение уходит в вашу нейросеть по API, только если вы включили это в настройках."
           }
         }
       }
