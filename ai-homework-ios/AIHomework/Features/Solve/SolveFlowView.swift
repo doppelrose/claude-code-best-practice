@@ -9,7 +9,9 @@ struct SolveFlowView: View {
 
     @Environment(AppModel.self) private var app
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     @State private var toast: String?
+    @State private var toastKind: ToastKind = .success
     @State private var sharedFile: SharedFile?
 
     private var l: L10n { model.l }
@@ -25,17 +27,23 @@ struct SolveFlowView: View {
             }
 
             if let toast {
-                Toast(message: toast)
+                Toast(message: toast, kind: toastKind)
                     .padding(.bottom, model.stage == .result ? 110 : 30)
                     .zIndex(5)
             }
         }
         .onAppear {
             model.attach(context)
+            // Здесь же запускается решение введённого текста или задания из истории.
             model.onAppear()
-            if model.consumeAutoSolve() {
-                model.solve(context: context)
-            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            model.scenePhaseChanged(phase)
+        }
+        .onChange(of: model.historyError) { _, message in
+            guard let message else { return }
+            show(message, kind: .error)
+            model.historyError = nil
         }
         .sheet(item: $sharedFile) { file in
             ActivityView(items: [file.url])
@@ -71,14 +79,16 @@ struct SolveFlowView: View {
             }
             Spacer(minLength: 0)
             // Симметричный элемент справа: избранное на экране результата.
-            if model.stage == .result {
+            if model.stage == .result, model.hasRecord {
                 GlassIconButton(
                     systemImage: model.isFavorite ? "bookmark.fill" : "bookmark",
                     tint: model.isFavorite ? Palette.accentHover : nil,
                     accessibilityLabel: l("В избранное", "Add to favorites")
                 ) {
                     model.toggleFavorite(context: context)
-                    show(model.isFavorite ? l("Добавлено в избранное", "Added to favorites") : l("Убрано из избранного", "Removed from favorites"))
+                    show(
+                        model.isFavorite ? l("Добавлено в избранное", "Added to favorites") : l("Убрано из избранного", "Removed from favorites"),
+                        kind: .info)
                 }
                 .transition(.scale.combined(with: .opacity))
             } else {
@@ -107,12 +117,14 @@ struct SolveFlowView: View {
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
         case .solving:
-            SolvingStage(l: l, phase: model.solvingPhase)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            SolvingStage(l: l, phase: model.solvingPhase) {
+                model.stopSolving()
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.96)))
         case .result:
             ResultStage(
                 model: model,
-                onToast: { show($0) },
+                onToast: { show($0, kind: .success) },
                 onExportPDF: { exportPDF() },
                 onResolve: { model.solve(context: context) }
             )
@@ -122,8 +134,11 @@ struct SolveFlowView: View {
 
     // MARK: - Actions
 
-    private func show(_ message: String) {
-        withAnimation(Theme.bouncy) { toast = message }
+    private func show(_ message: String, kind: ToastKind) {
+        withAnimation(Theme.bouncy) {
+            toastKind = kind
+            toast = message
+        }
         Task {
             try? await Task.sleep(for: .seconds(2))
             withAnimation(Theme.spring) {
@@ -137,12 +152,12 @@ struct SolveFlowView: View {
         do {
             let url = try PDFExporter.export(
                 problem: model.text.trimmed, solution: solution, image: model.recognizedImage ?? model.image,
-                date: model.record?.createdAt ?? Date(), l: l)
+                date: model.recordCreatedAt ?? Date(), l: l)
             Haptics.success()
             sharedFile = SharedFile(url: url)
         } catch {
             Haptics.error()
-            show(l("Не удалось создать PDF", "Could not create the PDF"))
+            show(l("Не удалось создать PDF", "Could not create the PDF"), kind: .error)
         }
     }
 }
@@ -165,10 +180,23 @@ private struct SelectingStage: View {
             .glassCapsule()
             .contentTransition(.opacity)
 
+            if model.hasPages {
+                pagePicker
+            }
+
             if let image = model.image {
-                RegionSelectionView(image: image, selection: $model.selection, l: l) {
-                    // Как Circle to Search: обвели — сразу распознаём и решаем.
-                    model.recognize(useSelection: true)
+                RegionSelectionView(
+                    image: image, selection: $model.selection, l: l,
+                    onSelectionFinished: {
+                        // Как Circle to Search: обвели — распознаём (после короткой паузы, её отменяет касание маркера).
+                        model.selectionFinished()
+                    },
+                    onAdjustmentBegan: { model.selectionAdjustmentBegan() }
+                )
+                .overlay {
+                    if model.isLoadingPage {
+                        ProgressView().controlSize(.large)
+                    }
                 }
                 .padding(.horizontal, 12)
             }
@@ -207,8 +235,24 @@ private struct SelectingStage: View {
             }
             .padding(.horizontal, Theme.screenPadding)
             .padding(.bottom, 12)
+            .disabled(model.isLoadingPage)
             .animation(Theme.spring, value: model.selection != nil)
         }
+    }
+
+    /// Выбор страницы скана: страницы не склеиваются, распознаётся одна выбранная.
+    private var pagePicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(model.pages.indices, id: \.self) { index in
+                    FilterChip(title: l("Стр. \(index + 1)", "Page \(index + 1)"), isSelected: model.pageIndex == index) {
+                        model.selectPage(index)
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.screenPadding)
+        }
+        .accessibilityLabel(l("Страница скана", "Scanned page"))
     }
 }
 
@@ -270,6 +314,8 @@ private struct RecognizingStage: View {
 private struct SolvingStage: View {
     let l: L10n
     let phase: SolvePhase?
+    /// «Остановить»: вернуться к условию, не теряя фото и текст.
+    let onStop: () -> Void
 
     /// Пройденные этапы — показываем путь задания: диспетчер → точный решатель → нейросеть.
     @State private var history: [SolvePhase] = []
@@ -286,7 +332,7 @@ private struct SolvingStage: View {
                     .foregroundStyle(Palette.ink)
                 Text(l("\(elapsed) с", "\(elapsed) s"))
                     .font(.footnote.monospacedDigit())
-                    .foregroundStyle(Palette.inkTertiary)
+                    .foregroundStyle(Palette.inkSubtle)
                     .contentTransition(.numericText())
             }
             VStack(alignment: .leading, spacing: 14) {
@@ -303,8 +349,19 @@ private struct SolvingStage: View {
             .padding(18)
             .glassCard()
             .padding(.horizontal, 28)
+            if let hint = waitingHint {
+                Text(hint)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.inkSubtle)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 36)
+                    .transition(.opacity)
+            }
             Spacer(minLength: 0)
-            Spacer(minLength: 0)
+            GlassButton(title: l("Остановить", "Stop"), systemImage: "stop.fill", action: onStop)
+                .padding(.horizontal, Theme.screenPadding)
+                .padding(.bottom, 12)
         }
         .onAppear { record(phase) }
         .onChange(of: phase) { _, newValue in record(newValue) }
@@ -314,6 +371,19 @@ private struct SolvingStage: View {
                 withAnimation(Theme.gentle) { elapsed += 1 }
             }
         }
+    }
+
+    /// Подсказка при долгом ожидании: понятно, что происходит и что можно сделать.
+    private var waitingHint: String? {
+        if elapsed >= 40 {
+            return l(
+                "Нейросеть отвечает очень долго. Можно остановить решение и проверить условие или интернет.",
+                "The AI model is taking very long. You can stop and check the task or the internet connection.")
+        }
+        if elapsed >= 15 {
+            return l("Нейросеть отвечает дольше обычного…", "The AI model is taking longer than usual…")
+        }
+        return nil
     }
 
     private func record(_ phase: SolvePhase?) {

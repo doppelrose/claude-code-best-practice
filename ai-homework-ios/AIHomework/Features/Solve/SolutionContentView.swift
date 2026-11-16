@@ -10,6 +10,10 @@ struct SolutionContentView: View {
     /// Открыть настройки нейросети (для нерешённых заданий).
     var onOpenModels: (() -> Void)?
     var onCopied: ((String) -> Void)?
+    /// Ответа нет из-за связи с нейросетью (сеть, тайм-аут, приложение свернули) — причина для пользователя.
+    var connectionIssue: String?
+    /// «Повторить» — для ошибки связи это главное действие вместо «Настроить нейросеть».
+    var onRetry: (() -> Void)?
 
     @State private var collapsedSteps: Set<Int> = []
 
@@ -64,15 +68,31 @@ struct SolutionContentView: View {
 
     // MARK: - Header
 
+    /// Ответ дала языковая модель: тогда `problemType` — подпись источника («Ответ модели …»), а не тип задачи.
+    private var isModelAnswer: Bool {
+        solution.engine == .remoteAPI || solution.engine == .appleIntelligence
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 SubjectBadge(subject: solution.subject, l: l)
                 ReliabilityBadge(reliability: solution.reliability, l: l)
             }
-            Text(solution.problemType)
-                .font(.title2.weight(.bold))
-                .fixedSize(horizontal: false, vertical: true)
+            if isModelAnswer {
+                // Имя модели — второстепенная подпись; главный элемент экрана — ответ.
+                if !solution.problemType.isEmpty {
+                    Label(solution.problemType, systemImage: "sparkles")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Palette.inkSubtle)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Text(solution.problemType)
+                    .font(.headlineTitle)
+                    .foregroundStyle(Palette.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Text(solution.reliability.detail(l))
                 .font(.footnote)
                 .foregroundStyle(Palette.inkSubtle)
@@ -124,6 +144,8 @@ struct SolutionContentView: View {
                     .frame(width: 2)
                     .padding(.vertical, 18)
             }
+        } else if let connectionIssue {
+            connectionCard(connectionIssue)
         } else {
             // Задание не решено — честно объясняем почему.
             VStack(alignment: .leading, spacing: 14) {
@@ -149,6 +171,36 @@ struct SolutionContentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentCard()
         }
+    }
+
+    /// Связь с нейросетью не удалась: это не «задание не решаемо», поэтому главное действие — «Повторить».
+    private func connectionCard(_ reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.title3)
+                    .foregroundStyle(Palette.inkMuted)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Palette.surface3))
+                Text(l("Нет связи с нейросетью", "No connection to the AI model"))
+                    .font(.cardTitle)
+            }
+            Text(reason)
+                .font(.callout)
+                .foregroundStyle(Palette.inkSubtle)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(l("Проверьте интернет и попробуйте ещё раз — настройки нейросети менять не нужно.", "Check the internet connection and try again — no need to change the AI model settings."))
+                .font(.footnote)
+                .foregroundStyle(Palette.inkSubtle)
+                .fixedSize(horizontal: false, vertical: true)
+            if let onRetry {
+                PrimaryButton(title: l("Повторить", "Try again"), systemImage: "arrow.clockwise", action: onRetry)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentCard()
     }
 
     // MARK: - Steps

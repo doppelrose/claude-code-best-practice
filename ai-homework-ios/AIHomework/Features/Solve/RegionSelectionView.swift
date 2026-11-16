@@ -9,8 +9,11 @@ struct RegionSelectionView: View {
     let image: UIImage
     @Binding var selection: CGRect?
     let l: L10n
-    /// Вызывается, когда пользователь закончил обводить область пальцем.
+    /// Вызывается сразу, когда пользователь закончил обводить область пальцем.
+    /// Пауза перед распознаванием и её отмена — забота модели сценария (`SolveViewModel.selectionFinished`).
     var onSelectionFinished: (@MainActor () -> Void)?
+    /// Пользователь начал обводить заново или тянуть маркер — отложенный запуск нужно отменить.
+    var onAdjustmentBegan: (@MainActor () -> Void)?
 
     @State private var lasso: [CGPoint] = []
     @State private var dashPhase: CGFloat = 0
@@ -108,7 +111,10 @@ struct RegionSelectionView: View {
     private func lassoGesture(frame: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                if lasso.isEmpty { Haptics.soft() }
+                if lasso.isEmpty {
+                    Haptics.soft()
+                    onAdjustmentBegan?()
+                }
                 lasso.append(value.location)
             }
             .onEnded { _ in
@@ -125,13 +131,7 @@ struct RegionSelectionView: View {
                 withAnimation(Theme.bouncy) {
                     selection = normalizedRect(for: clipped, in: frame)
                 }
-                if let onSelectionFinished {
-                    // Короткая пауза, чтобы было видно выделенную рамку.
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        onSelectionFinished()
-                    }
-                }
+                onSelectionFinished?()
             }
     }
 
@@ -165,6 +165,7 @@ struct RegionSelectionView: View {
                         if resizeStart == nil {
                             resizeStart = rect
                             Haptics.selection()
+                            onAdjustmentBegan?()
                         }
                         guard let start = resizeStart else { return }
                         var minX = start.minX

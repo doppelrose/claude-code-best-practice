@@ -49,12 +49,16 @@ struct CameraPicker: UIViewControllerRepresentable {
 
 /// Сканер документов VisionKit: находит лист, выравнивает перспективу и повышает контраст —
 /// идеально для страниц учебника и тетради.
+///
+/// Страницы не склеиваются: скан целиком передаётся в `onScan`, а страницы уменьшаются по одной
+/// вне главного потока (`AppModel.startSolve(scan:)`), и пользователь выбирает нужную.
 struct DocumentScanner: UIViewControllerRepresentable {
-    let onImage: (UIImage) -> Void
+    let onScan: (VNDocumentCameraScan) -> Void
     let onCancel: () -> Void
+    let onError: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onImage: onImage, onCancel: onCancel)
+        Coordinator(onScan: onScan, onCancel: onCancel, onError: onError)
     }
 
     func makeUIViewController(context: Context) -> VNDocumentCameraViewController {
@@ -67,12 +71,17 @@ struct DocumentScanner: UIViewControllerRepresentable {
 
     @MainActor
     final class Coordinator: NSObject {
-        let onImage: (UIImage) -> Void
+        let onScan: (VNDocumentCameraScan) -> Void
         let onCancel: () -> Void
+        let onError: (String) -> Void
 
-        init(onImage: @escaping (UIImage) -> Void, onCancel: @escaping () -> Void) {
-            self.onImage = onImage
+        init(
+            onScan: @escaping (VNDocumentCameraScan) -> Void, onCancel: @escaping () -> Void,
+            onError: @escaping (String) -> Void
+        ) {
+            self.onScan = onScan
             self.onCancel = onCancel
+            self.onError = onError
         }
     }
 }
@@ -83,9 +92,7 @@ extension DocumentScanner.Coordinator: @preconcurrency VNDocumentCameraViewContr
             onCancel()
             return
         }
-        // Несколько страниц склеиваем по вертикали, чтобы задание не потерялось.
-        let pages = (0..<min(scan.pageCount, 4)).map { scan.imageOfPage(at: $0) }
-        onImage(DocumentScanner.stack(pages))
+        onScan(scan)
     }
 
     func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
@@ -93,27 +100,41 @@ extension DocumentScanner.Coordinator: @preconcurrency VNDocumentCameraViewContr
     }
 
     func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
-        onCancel()
+        onError(error.localizedDescription)
     }
 }
 
-extension DocumentScanner {
-    static func stack(_ pages: [UIImage]) -> UIImage {
-        guard pages.count > 1 else { return pages.first ?? UIImage() }
-        let width = pages.map { $0.size.width }.max() ?? 1
-        let scaled = pages.map { page -> (UIImage, CGSize) in
-            let factor = width / max(page.size.width, 1)
-            return (page, CGSize(width: width, height: page.size.height * factor))
-        }
-        let height = scaled.reduce(0) { $0 + $1.1.height }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { _ in
-            var y: CGFloat = 0
-            for (page, size) in scaled {
-                page.draw(in: CGRect(x: 0, y: y, width: size.width, height: size.height))
-                y += size.height
+// MARK: - Camera access
+
+/// Нет доступа к камере: объясняем, как его включить, и предлагаем галерею.
+struct CameraAccessDeniedView: View {
+    let l: L10n
+    let onOpenSettings: () -> Void
+    let onChoosePhoto: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Spacer()
+                GlassIconButton(systemImage: "xmark", accessibilityLabel: l("Закрыть", "Close"), action: onClose)
             }
+            CardIcon(systemImage: "camera.fill")
+            Text(l("Нет доступа к камере", "No camera access"))
+                .font(.headlineTitle)
+                .foregroundStyle(Palette.ink)
+            Text(
+                l(
+                    "Чтобы фотографировать задания, разрешите AI Homework доступ к камере: Настройки → AI Homework → Камера. Можно также выбрать готовое фото из галереи.",
+                    "To photograph tasks, allow AI Homework to use the camera: Settings → AI Homework → Camera. You can also choose an existing photo from your library."))
+                .font(.callout)
+                .foregroundStyle(Palette.inkSubtle)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            PrimaryButton(title: l("Открыть Настройки", "Open Settings"), systemImage: "gearshape", action: onOpenSettings)
+            GlassButton(title: l("Выбрать из галереи", "Choose from library"), systemImage: "photo.on.rectangle", action: onChoosePhoto)
         }
+        .padding(Theme.screenPadding)
+        .background(Palette.canvas.ignoresSafeArea())
     }
 }

@@ -20,6 +20,13 @@ struct ReviewStage: View {
                 if let confidence = model.ocrConfidence {
                     confidenceRow(confidence)
                 }
+                if let hint = model.reviewHint {
+                    // Почему текст показан на проверку, а не отправлен на решение сразу.
+                    Label(hint, systemImage: "exclamationmark.magnifyingglass")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(Palette.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 subjectPicker
                 editor
                 if let error = model.errorMessage {
@@ -208,7 +215,9 @@ struct ResultStage: View {
                         onOpenModels: {
                             app.isSettingsPresented = true
                         },
-                        onCopied: onToast)
+                        onCopied: onToast,
+                        connectionIssue: model.connectionIssue,
+                        onRetry: onResolve)
                 }
             }
             .padding(.horizontal, Theme.screenPadding)

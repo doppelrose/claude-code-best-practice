@@ -44,11 +44,35 @@ struct TextAnalysis: Sendable, Equatable {
 ///
 /// Это не «решение» задания, а честные вспомогательные данные: части речи, начальные формы,
 /// возможные опечатки, имена и названия в тексте.
-@MainActor
+///
+/// Часть NaturalLanguage не привязана к главному потоку (`linguisticAnalysis`); на главном
+/// остаётся только проверка орфографии `UITextChecker` (UIKit).
 enum LanguageTools {
+    /// Полный анализ синхронно (прежний вызов). NaturalLanguage-часть при этом тоже идёт на главном потоке —
+    /// где можно подождать, лучше `analyzeInBackground`.
+    @MainActor
     static func analyze(_ text: String, lang: AppLanguage) -> TextAnalysis {
+        withSpelling(linguisticAnalysis(text, lang: lang), text: text, lang: lang)
+    }
+
+    /// Тот же анализ, но NaturalLanguage-часть выполняется вне главного потока.
+    @MainActor
+    static func analyzeInBackground(_ text: String, lang: AppLanguage) async -> TextAnalysis {
+        let linguistic = await Task.detached(priority: .userInitiated) {
+            linguisticAnalysis(text, lang: lang)
+        }.value
+        return withSpelling(linguistic, text: text, lang: lang)
+    }
+
+    private static func prepared(_ text: String) -> String {
+        String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000))
+    }
+
+    /// Язык, предложения, части речи, начальные формы и имена — без UIKit, в любом потоке.
+    /// Орфография здесь не проверяется (`spellCheckAvailable == false`, опечаток нет).
+    nonisolated static func linguisticAnalysis(_ text: String, lang: AppLanguage) -> TextAnalysis {
         let l = L10n(lang)
-        let trimmed = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000))
+        let trimmed = prepared(text)
 
         // Язык текста.
         let recognizer = NLLanguageRecognizer()
@@ -107,7 +131,24 @@ enum LanguageTools {
             return entities.count < 30
         }
 
-        // Орфография.
+        let singleTerm = words.count <= 3 && !trimmed.isEmpty && trimmed.count <= 40 ? trimmed : nil
+        return TextAnalysis(
+            languageName: languageName,
+            languageCode: language?.rawValue,
+            sentenceCount: sentenceCount,
+            wordCount: words.count,
+            misspellings: [],
+            spellCheckAvailable: false,
+            words: words,
+            entities: entities,
+            singleTerm: singleTerm)
+    }
+
+    /// Добавляет к анализу проверку орфографии (`UITextChecker` — на главном потоке).
+    @MainActor
+    private static func withSpelling(_ base: TextAnalysis, text: String, lang: AppLanguage) -> TextAnalysis {
+        let trimmed = prepared(text)
+        let language = base.languageCode.map { NLLanguage(rawValue: $0) }
         let checkerLanguage = spellCheckLanguage(for: language, fallback: lang)
         var misspellings: [TextAnalysis.Misspelling] = []
         if let checkerLanguage {
@@ -131,20 +172,14 @@ enum LanguageTools {
             }
         }
 
-        let singleTerm = words.count <= 3 && !trimmed.isEmpty && trimmed.count <= 40 ? trimmed : nil
-        return TextAnalysis(
-            languageName: languageName,
-            languageCode: language?.rawValue,
-            sentenceCount: sentenceCount,
-            wordCount: words.count,
-            misspellings: misspellings,
-            spellCheckAvailable: checkerLanguage != nil,
-            words: words,
-            entities: entities,
-            singleTerm: singleTerm)
+        var result = base
+        result.misspellings = misspellings
+        result.spellCheckAvailable = checkerLanguage != nil
+        return result
     }
 
     /// Код языка для `UITextChecker`, если его словарь установлен в системе.
+    @MainActor
     private static func spellCheckLanguage(for language: NLLanguage?, fallback: AppLanguage) -> String? {
         let available = UITextChecker.availableLanguages
         let prefix: String
@@ -158,7 +193,7 @@ enum LanguageTools {
         return available.first { $0.hasPrefix(prefix) }
     }
 
-    private static func partOfSpeechName(_ tag: NLTag?, _ l: L10n) -> String {
+    nonisolated private static func partOfSpeechName(_ tag: NLTag?, _ l: L10n) -> String {
         switch tag {
         case .some(.noun): return l("существительное", "noun")
         case .some(.verb): return l("глагол", "verb")
@@ -176,6 +211,7 @@ enum LanguageTools {
     }
 
     /// Есть ли в системном словаре статья для слова.
+    @MainActor
     static func hasDictionaryDefinition(for term: String) -> Bool {
         UIReferenceLibraryViewController.dictionaryHasDefinition(forTerm: term)
     }

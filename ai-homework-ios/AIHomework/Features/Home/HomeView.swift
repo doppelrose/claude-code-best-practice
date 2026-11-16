@@ -6,7 +6,18 @@ struct HomeView: View {
     let namespace: Namespace.ID
 
     @Environment(AppModel.self) private var app
-    @Query(sort: \SolvedProblem.createdAt, order: .reverse) private var problems: [SolvedProblem]
+    @Environment(\.modelContext) private var context
+    /// Только последние записи: вся история с миниатюрами главному экрану не нужна.
+    @Query(HomeView.recentDescriptor) private var problems: [SolvedProblem]
+    /// Счётчики истории считаются запросом `fetchCount`, без загрузки записей.
+    @State private var totalCount = 0
+    @State private var favoritesCount = 0
+
+    private nonisolated static var recentDescriptor: FetchDescriptor<SolvedProblem> {
+        var descriptor = FetchDescriptor<SolvedProblem>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+        descriptor.fetchLimit = 10
+        return descriptor
+    }
 
     private var l: L10n { app.l }
 
@@ -14,6 +25,9 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header.staggered(0)
+                if app.isHistoryTemporary {
+                    historyUnavailableBanner
+                }
                 hero.staggered(1)
                 quickActions.staggered(2)
                 if !problems.isEmpty {
@@ -31,6 +45,32 @@ struct HomeView: View {
         .scrollIndicators(.hidden)
         .background(AnimatedBackground())
         .toolbar(.hidden, for: .navigationBar)
+        .onAppear { refreshCounts() }
+        .onChange(of: problems.map(\.id)) { _, _ in refreshCounts() }
+        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+            refreshCounts()
+        }
+    }
+
+    private func refreshCounts() {
+        totalCount = HistoryStore.count(in: context)
+        favoritesCount = HistoryStore.count(#Predicate<SolvedProblem> { $0.isFavorite }, in: context)
+    }
+
+    /// Хранилище истории не открылось — честно предупреждаем, что записи не сохранятся.
+    private var historyUnavailableBanner: some View {
+        Label(
+            l(
+                "История сейчас недоступна: новые решения не сохранятся после перезапуска приложения.",
+                "History is unavailable right now: new solutions will not be kept after the app restarts."),
+            systemImage: "exclamationmark.triangle.fill"
+        )
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(Palette.inkMuted)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 
     // MARK: - Header
@@ -149,7 +189,7 @@ struct HomeView: View {
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
-                    ForEach(problems.prefix(10)) { problem in
+                    ForEach(problems) { problem in
                         NavigationLink(value: AppRoute.problem(problem.id)) {
                             RecentCard(problem: problem, l: l)
                         }
@@ -207,8 +247,7 @@ struct HomeView: View {
                     Text(l("История заданий", "Task history"))
                         .font(.cardTitle)
                         .foregroundStyle(Palette.ink)
-                    let favorites = problems.filter { $0.isFavorite }.count
-                    Text(l("Решено: \(problems.count) · В избранном: \(favorites)", "Solved: \(problems.count) · Favorites: \(favorites)"))
+                    Text(l("Решено: \(totalCount) · В избранном: \(favoritesCount)", "Solved: \(totalCount) · Favorites: \(favoritesCount)"))
                         .font(.subheadline)
                         .foregroundStyle(Palette.inkSubtle)
                 }
