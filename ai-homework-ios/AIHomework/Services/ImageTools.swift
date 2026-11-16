@@ -1,3 +1,4 @@
+import ImageIO
 import UIKit
 
 /// Обёртка для передачи значения между изоляциями, когда его потокобезопасность
@@ -13,6 +14,30 @@ struct UncheckedSendable<Value>: @unchecked Sendable {
 /// Подготовка изображений: нормализация ориентации, уменьшение, обрезка, миниатюры.
 /// Все операции безопасно выполняются вне главного потока.
 enum ImageTools {
+    /// Длинная сторона изображения, с которым работает сценарий решения (показ, выделение, OCR).
+    /// Обрезка по выделению делается из этой копии, поэтому мелкая формула сохраняет разрешение.
+    static let workingDimension: CGFloat = 3000
+
+    /// Самый большой файл изображения, который приложение соглашается открыть.
+    static let maxInputBytes = 60 * 1024 * 1024
+
+    /// Декодирует файл изображения сразу в уменьшенном виде (ImageIO): полный битмап снимка
+    /// на 24–48 Мп в памяти не раскрывается. Ориентация из EXIF применяется сразу — результат `.up`.
+    /// Вызывать вне главного потока.
+    static func downsampled(_ data: Data, maxDimension: CGFloat = workingDimension) -> UIImage? {
+        guard !data.isEmpty, data.count <= maxInputBytes else { return nil }
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxDimension),
+        ] as CFDictionary
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        return UIImage(cgImage: cgImage, scale: 1, orientation: .up)
+    }
+
     /// Приводит ориентацию к `.up` и ограничивает длинную сторону — для OCR этого достаточно,
     /// а память и время обработки сокращаются в разы.
     static func normalized(_ image: UIImage, maxDimension: CGFloat = 2600) -> UIImage {
@@ -33,6 +58,9 @@ enum ImageTools {
         }
     }
 
+    /// Меньше этого (в пикселях) фрагмент не распознаётся — пользователя просят выделить побольше.
+    static let minimumCropSide: CGFloat = 16
+
     /// Обрезка по прямоугольнику в нормированных координатах (0…1, начало — левый верхний угол).
     static func crop(_ image: UIImage, to normalizedRect: CGRect) -> UIImage? {
         guard let cgImage = image.cgImage else { return nil }
@@ -42,7 +70,7 @@ enum ImageTools {
             x: normalizedRect.minX * width, y: normalizedRect.minY * height,
             width: normalizedRect.width * width, height: normalizedRect.height * height
         ).integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
-        guard rect.width >= 8, rect.height >= 8, let cropped = cgImage.cropping(to: rect) else { return nil }
+        guard rect.width >= minimumCropSide, rect.height >= minimumCropSide, let cropped = cgImage.cropping(to: rect) else { return nil }
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
     }
 
