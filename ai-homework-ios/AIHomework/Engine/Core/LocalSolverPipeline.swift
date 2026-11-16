@@ -43,12 +43,54 @@ struct LocalSolverPipeline: Sendable {
         }
     }
 
+    private func subject(of engine: Engine) -> Subject {
+        switch engine {
+        case .math: return .math
+        case .physics: return .physics
+        case .chemistry: return .chemistry
+        case .informatics: return .informatics
+        }
+    }
+
+    /// Признаки, по которым решатель «чужого» предмета вправе ответить.
+    ///
+    /// Если решатель выбранного предмета не справился, следующий решатель отвечает, только когда
+    /// задание явно его: иначе геометрия получает «M(BC) = 23 г/моль», а неоднозначная
+    /// реакция — «упрощение выражения Fe + O²» с меткой «точно».
+    private func hasStrongEvidence(for engine: Engine, text: String, chemistry: ChemistrySolver.FormulaEvidence) -> Bool {
+        switch engine {
+        case .chemistry:
+            return chemistry != .none
+        case .math:
+            // Символы элементов в «уравнении» — не переменные.
+            return chemistry == .none
+        case .physics:
+            if PhysicsSolver(lang: lang).extractGivens(MathNormalizer.normalize(text)).count >= 2 { return true }
+            return SubjectDetector().detect(text).subject == .physics
+        case .informatics:
+            // Решатель срабатывает только на названия систем счисления и единиц информации.
+            return true
+        }
+    }
+
     /// Решение точными локальными алгоритмами. `nil` — задание им не по силам.
     func solve(_ text: String, subject: Subject) -> Solution? {
         let trimmed = text.trimmed
         guard !trimmed.isEmpty else { return nil }
+        var engines = order(for: subject)
+        guard !engines.isEmpty else { return nil }
+        let chemistry = ChemistrySolver.formulaEvidence(in: trimmed)
+        // Уравнение реакции сначала разбирает химия, какой бы предмет ни был выбран.
+        if chemistry == .reaction, let index = engines.firstIndex(of: .chemistry), index > 0 {
+            engines.remove(at: index)
+            engines.insert(.chemistry, at: 0)
+        }
         var firstFailure: Solution?
-        for engine in order(for: subject) {
+        for engine in engines {
+            // В уравнении реакции «переменные» — символы элементов: математика его не трактует.
+            if engine == .math, chemistry == .reaction { continue }
+            let own = self.subject(of: engine) == subject
+            guard own || hasStrongEvidence(for: engine, text: trimmed, chemistry: chemistry) else { continue }
             guard let solution = run(engine, trimmed) else { continue }
             if solution.isSolved { return solution }
             // Решатель узнал задание, но не справился — запоминаем его объяснение.
