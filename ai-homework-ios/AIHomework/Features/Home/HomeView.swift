@@ -256,8 +256,8 @@ struct HomeView: View {
             Image(systemName: "lock.shield")
             Text(
                 l(
-                    "Точные задачи решаются прямо на iPhone. Остальное — в вашей нейросети по API; ключ хранится в Связке ключей.",
-                    "Exact tasks are solved right on the iPhone. Everything else goes to your AI model via API; the key stays in the Keychain."))
+                    "Без API задания решаются прямо на iPhone. С API текст задания уходит в вашу нейросеть, фото — только если вы включили это в настройках. Ключ хранится в Связке ключей.",
+                    "Without an API, tasks are solved right on the iPhone. With an API, the task text goes to your AI model, and the photo only if you turned that on in Settings. The key stays in the Keychain."))
         }
         .font(.caption)
         .foregroundStyle(Palette.inkTertiary)
