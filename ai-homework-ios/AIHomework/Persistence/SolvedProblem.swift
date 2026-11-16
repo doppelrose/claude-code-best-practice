@@ -68,3 +68,38 @@ final class SolvedProblem {
             || problemType.lowercased().contains(needle)
     }
 }
+
+extension SolvedProblem {
+    /// Задание решалось только по картинке: вместо условия сохранена подпись-заглушка.
+    var isImageOnly: Bool {
+        HistoryPlaceholder.imageOnlyTitles.contains(problemText)
+    }
+}
+
+/// Подписи для заданий без распознанного текста (сохраняются в `problemText`).
+enum HistoryPlaceholder {
+    static func imageOnlyTitle(_ l: L10n) -> String {
+        l("Задание на изображении", "Task in the image")
+    }
+
+    /// Все языковые варианты подписи — запись могла быть сохранена на другом языке интерфейса.
+    static let imageOnlyTitles: Set<String> = ["Задание на изображении", "Task in the image"]
+}
+
+// MARK: - Версии схемы
+
+/// Текущая схема истории, зафиксированная как первая версия.
+///
+/// Модель `SolvedProblem` не меняется: схема лишь получает номер, чтобы будущие изменения
+/// проходили через `HomeworkMigrationPlan`, а не ломали хранилище после обновления.
+/// Когда модель понадобится изменить: скопировать текущую в `HomeworkSchemaV1` как вложенный тип,
+/// добавить `HomeworkSchemaV2` и этап миграции.
+enum HomeworkSchemaV1: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
+    static var models: [any PersistentModel.Type] { [SolvedProblem.self] }
+}
+
+enum HomeworkMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] { [HomeworkSchemaV1.self] }
+    static var stages: [MigrationStage] { [] }
+}
