@@ -38,17 +38,20 @@ enum ScreenshotInbox {
 
     @MainActor
     static func store(_ data: Data) throws {
-        try data.write(to: fileURL, options: .atomic)
+        // Скриншот может содержать личные данные: файл защищён и живёт только до чтения.
+        try data.write(to: fileURL, options: [.atomic, .completeFileProtection])
         UserDefaults.standard.set(true, forKey: flagKey)
         NotificationCenter.default.post(name: QuickActionInbox.notification, object: nil)
     }
 
+    /// Забирает данные скриншота (декодирует их вызывающий код, вне главного потока).
+    /// Временный файл удаляется при любом исходе — в том числе «осиротевший» от прошлого запуска.
     @MainActor
-    static func consume() -> UIImage? {
-        guard UserDefaults.standard.bool(forKey: flagKey) else { return nil }
+    static func consume() -> Data? {
+        let isPending = UserDefaults.standard.bool(forKey: flagKey)
         UserDefaults.standard.removeObject(forKey: flagKey)
         defer { try? FileManager.default.removeItem(at: fileURL) }
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return UIImage(data: data)
+        guard isPending else { return nil }
+        return try? Data(contentsOf: fileURL)
     }
 }
