@@ -184,6 +184,23 @@ struct Solution: Codable, Hashable, Sendable {
         )
     }
 
+    /// Решение условия, которое перед вычислением было исправлено или переписано
+    /// (эвристика OCR, запись нейросети-диспетчера, распознавание с низкой уверенностью).
+    ///
+    /// Вычисление при этом остаётся точным, но трактовка условия — нет, поэтому метка
+    /// «Точное решение» понижается до `heuristic` («проверьте условие»), а причина
+    /// добавляется в примечания. Приближённые ответы и отказы не меняются.
+    func withCorrectedInput(note: String) -> Solution {
+        var solution = self
+        if solution.reliability == .exact, solution.isSolved {
+            solution.reliability = .heuristic
+        }
+        if !note.isEmpty, !solution.notes.contains(note) {
+            solution.notes.append(note)
+        }
+        return solution
+    }
+
     /// Плоский текст решения — для копирования, «Поделиться» и PDF.
     func plainText(problem: String, _ l: L10n) -> String {
         var lines: [String] = []
