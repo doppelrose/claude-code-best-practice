@@ -81,9 +81,17 @@ struct MathFormatter: Sendable {
         if value == 0 { return "0" }
         let magnitude = abs(value)
         if magnitude >= 1e12 || magnitude < 1e-5 {
-            let exponent = Int(floor(log10(magnitude)))
-            let mantissa = value / Foundation.pow(10, Double(exponent))
-            let mantissaText = fixed(mantissa, decimals: max(significant - 1, 0))
+            var exponent = Int(floor(log10(magnitude)))
+            var mantissa = value / Foundation.pow(10, Double(exponent))
+            // После округления мантисса может стать 10 (9,999999… → 10): переносим в порядок,
+            // чтобы не получить «10·10⁹⁸» вместо «10⁹⁹» (AUD-99).
+            let decimals = max(significant - 1, 0)
+            let scale = Foundation.pow(10, Double(decimals))
+            if abs((mantissa * scale).rounded() / scale) >= 10 {
+                exponent += 1
+                mantissa = value / Foundation.pow(10, Double(exponent))
+            }
+            let mantissaText = fixed(mantissa, decimals: decimals)
             if mantissaText == "1" { return "10" + superscript(exponent) }
             if mantissaText == MathFormatter.minus + "1" { return MathFormatter.minus + "10" + superscript(exponent) }
             return mantissaText + "·10" + superscript(exponent)
