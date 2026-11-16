@@ -317,12 +317,10 @@ final class SolveCoordinator {
     }
 
     /// Анализ текста — единственная точка вызова `LanguageTools` из координатора.
-    /// `LanguageTools` пока изолирован на главном акторе (из-за `UITextChecker`); когда его
-    /// NaturalLanguage-часть станет `nonisolated`, её можно будет выполнять здесь в фоне.
+    /// NaturalLanguage-часть выполняется в фоне; на главном потоке остаётся только
+    /// проверка орфографии `UITextChecker`.
     private func textAnalysis(_ text: String, lang: AppLanguage) async -> TextAnalysis {
-        // Даём интерфейсу показать текущую стадию до синхронного анализа.
-        await Task.yield()
-        return LanguageTools.analyze(text, lang: lang)
+        await LanguageTools.analyzeInBackground(text, lang: lang)
     }
 
     /// Пояснение к ошибке для истории и PDF: без сырого текста ответа сервера (AUD-96).
