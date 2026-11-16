@@ -358,7 +358,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "AI Homework";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
-				INFOPLIST_KEY_NSCameraUsageDescription = "The camera is used to take a photo of a homework problem. Photos are processed on this device.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The camera is used to take a photo of a homework problem. The text is recognized on this device. The image is sent to your AI model via API only if you turn this on in Settings.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -393,7 +393,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "AI Homework";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
-				INFOPLIST_KEY_NSCameraUsageDescription = "The camera is used to take a photo of a homework problem. Photos are processed on this device.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The camera is used to take a photo of a homework problem. The text is recognized on this device. The image is sent to your AI model via API only if you turn this on in Settings.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
