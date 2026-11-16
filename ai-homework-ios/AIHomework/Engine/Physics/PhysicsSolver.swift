@@ -47,7 +47,9 @@ struct PhysicsSolver: Sendable {
 
         var givens = extractGivens(normalized)
         guard !givens.isEmpty else { return nil }
-        mergeTemperatures(&givens, text: normalized)
+        if mergeTemperatures(&givens, text: normalized) == .singleAbsolute {
+            return unsupported(givens: givens, target: detectTarget(normalized.lowercased()), singleTemperature: true)
+        }
 
         let lower = normalized.lowercased()
         let target = detectTarget(lower)
@@ -101,6 +103,10 @@ struct PhysicsSolver: Sendable {
             }
         }
         result = converted
+        // «от 20 до 100 °C»: единица записана один раз — относим её к обеим температурам.
+        result = Rx.replace(
+            "(?<![A-Za-zА-Яа-яЁё])(от|с|from)\\s+(-?\\d+(?:[.,]\\d+)?)\\s+(до|to)\\s+(-?\\d+(?:[.,]\\d+)?)\\s*(°\\s?[CcСс]|℃|°|градус\\w*)",
+            in: result, with: "$1 $2 $5 $3 $4 $5")
         return result
     }
 
@@ -193,8 +199,12 @@ struct PhysicsSolver: Sendable {
         return best?.id
     }
 
+    private enum TemperatureReading { case none, difference, singleAbsolute }
+
     /// Две температуры («от 20 °C до 100 °C») превращаются в одну разность Δt.
-    private func mergeTemperatures(_ givens: inout [Given], text: String) {
+    /// Одна температура считается Δt, только если это действительно изменение («на 10 °C»):
+    /// «нагреть до 100 °C» без начальной температуры — не Δt = 100 °C.
+    private func mergeTemperatures(_ givens: inout [Given], text: String) -> TemperatureReading {
         let indices = givens.indices.filter { givens[$0].dimension == .temperature }
         if indices.count == 2 {
             let first = givens[indices[0]]
@@ -205,9 +215,19 @@ struct PhysicsSolver: Sendable {
                 isSI: true)
             givens.remove(at: indices[1])
             givens[indices[0]] = delta
+            return .difference
         } else if indices.count == 1 {
+            let number = "-?\\d+(?:[.,]\\d+)?\\s*(?:°|℃|градус|K\\b|К\\b)"
+            let absolute = Rx.contains(
+                "(?<![A-Za-zА-Яа-яЁё])(?:до|от|с|to|from|температур\\w*(?:\\s+[A-Za-zА-Яа-яЁё]+){0,2}\\s*(?:равн\\w*|=|:|is|of)?)\\s*\(number)",
+                in: text)
+            // «на 10 °C», «by 10 °C» — это и есть изменение температуры.
+            let change = Rx.contains("(?<![A-Za-zА-Яа-яЁё])(?:на|by)\\s+\(number)", in: text)
+            if absolute, !change, givens[indices[0]].quantityID != "dT" { return .singleAbsolute }
             givens[indices[0]].quantityID = "dT"
+            return .difference
         }
+        return .none
     }
 
     private func gravity(in lower: String) -> Double {
@@ -422,7 +442,7 @@ struct PhysicsSolver: Sendable {
         }
     }
 
-    private func unsupported(givens: [Given], target: String?, ambiguous: Bool = false) -> Solution {
+    private func unsupported(givens: [Given], target: String?, ambiguous: Bool = false, singleTemperature: Bool = false) -> Solution {
         let listed = givens.map { given -> String in
             if let id = given.quantityID, let quantity = PhysicsData.quantityByID[id] {
                 return "\(quantity.symbol) = \(given.sourceText)"
@@ -430,7 +450,11 @@ struct PhysicsSolver: Sendable {
             return given.sourceText
         }.joined(separator: "; ")
         let reason =
-            ambiguous
+            singleTemperature
+            ? l(
+                "В условии одна температура (начальная или конечная), а для изменения температуры Δt нужны обе. Распознано: \(listed). Укажите обе температуры, например «от 20 до 100 °C».",
+                "The task gives only one temperature (initial or final), but the temperature change Δt needs both. Recognized: \(listed). Give both temperatures, e.g. “from 20 to 100 °C”.")
+            : ambiguous
             ? l(
                 "К этим данным подходят несколько формул с разными ответами, поэтому локальный решатель не стал угадывать. Распознанные величины: \(listed).",
                 "Several formulas with different answers fit these data, so the local solver did not guess. Recognized quantities: \(listed).")
