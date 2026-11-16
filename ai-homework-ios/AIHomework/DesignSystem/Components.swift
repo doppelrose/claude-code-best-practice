@@ -207,19 +207,54 @@ struct FlowLayout: Layout {
     }
 }
 
+/// Вид всплывающего сообщения: зелёная галочка — только для настоящего успеха.
+enum ToastKind: Sendable, Equatable {
+    /// Действие выполнено (скопировано, сохранено).
+    case success
+    /// Нейтральное уведомление (например, избранное).
+    case info
+    /// Что-то не получилось.
+    case error
+}
+
 /// Всплывающее сообщение внизу экрана.
 struct Toast: View {
     let message: String
-    var systemImage = "checkmark.circle.fill"
+    var kind: ToastKind = .success
+    /// Свой символ вместо стандартного для `kind`.
+    var systemImage: String?
+
+    private var symbol: String {
+        if let systemImage { return systemImage }
+        switch kind {
+        case .success: return "checkmark.circle.fill"
+        case .info: return "info.circle.fill"
+        case .error: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var symbolColor: Color {
+        switch kind {
+        case .success: return Palette.success
+        case .info: return Palette.inkSubtle
+        case .error: return Palette.inkMuted
+        }
+    }
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: systemImage).foregroundStyle(Palette.success)
+            Image(systemName: symbol).foregroundStyle(symbolColor)
             Text(message).font(.subheadline.weight(.medium)).foregroundStyle(Palette.ink)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .glassCapsule()
+        .overlay {
+            if kind == .error {
+                Capsule(style: .continuous).strokeBorder(Palette.hairlineStrong, lineWidth: 1)
+            }
+        }
+        .accessibilityElement(children: .combine)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
