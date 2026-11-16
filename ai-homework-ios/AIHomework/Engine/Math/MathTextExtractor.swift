@@ -17,11 +17,15 @@ enum MathTextExtractor {
         "my", "me", "he", "us", "am", "go",
     ]
 
-    private static let operatorCharacters = Set("+-*/^=<>≤≥≠()|√∛%°!²³⁴⁵⁶⁷⁸⁹⁰¹_")
+    private static let operatorCharacters = Set("+-*/^=<>≤≥≠()|√∛%°!²³⁴⁵⁶⁷⁸⁹⁰¹_∶")
     private static let mathVariableLookalikes: Set<Character> = ["х", "Х", "у", "У"]
 
     static func fragments(in text: String) -> [String] {
         var normalized = MathNormalizer.normalize(text)
+        // Двоеточие рядом с числовой дробью — школьное деление дробей «2/3 : 4/9» = (2/3) : (4/9) (AUD-17).
+        // Знак «∶» парсер читает как «:», где дробь справа — одно число.
+        normalized = Rx.replace("(?<=\\d/\\d{1,9})\\s+:\\s+(?=[0-9(√a-zA-Zху])", in: normalized, with: " ∶ ")
+        normalized = Rx.replace("(?<=[0-9)²³])\\s+:\\s+(?=\\d+/\\d)", in: normalized, with: " ∶ ")
         // Двоеточие между числами/скобками, отделённое пробелами, — знак деления: «(3,5 + 1,5) : 2».
         normalized = Rx.replace("(?<=[0-9)²³])\\s+:\\s+(?=[0-9(√a-zA-Zху])", in: normalized, with: " / ")
         let russianContext = normalized.hasCyrillic
@@ -30,8 +34,10 @@ enum MathTextExtractor {
         // Разделители утверждений: перевод строки, «;», запятая с пробелом.
         var pieces: [String] = []
         for line in normalized.components(separatedBy: .newlines) {
-            for part in line.components(separatedBy: ";") {
-                pieces.append(contentsOf: splitOnListCommas(part))
+            for item in numberedItems(in: line) ?? [line] {
+                for part in item.components(separatedBy: ";") {
+                    pieces.append(contentsOf: splitOnListCommas(part))
+                }
             }
         }
 
@@ -84,6 +90,38 @@ enum MathTextExtractor {
         }
         parts.append(current)
         return parts
+    }
+
+    /// Пункты нумерованного списка, а вводные слова перед «1)» — отдельным первым элементом.
+    static func numberedItems(in text: String) -> [String]? {
+        guard let list = numberedList(in: text) else { return nil }
+        return list.intro.isEmpty ? list.items : [list.intro] + list.items
+    }
+
+    /// Нумерованный список: «1. 2x + 1 = 5  2. 3x − 3 = 0», «Решите: 1) … 2) …» (AUD-57).
+    /// Возвращает вводные слова и пункты без номеров, или `nil`, если это не список хотя бы из двух пунктов.
+    static func numberedList(in text: String) -> (intro: String, items: [String])? {
+        guard let first = Rx.ranges("(?:^|[\\s:])(1)\\s*([.)])\\s+", in: text).first, let markerRange = first[2],
+            let start = first[0]
+        else { return nil }
+        let marker = String(text[markerRange])
+        let escaped = NSRegularExpression.escapedPattern(for: marker)
+        var bodies: [String] = []
+        var cursor = start.upperBound
+        var number = 2
+        while number <= 20 {
+            let rest = String(text[cursor...])
+            guard let next = Rx.ranges("\\s\(number)\\s*\(escaped)\\s+", in: rest).first, let range = next[0] else { break }
+            bodies.append(String(rest[..<range.lowerBound]))
+            cursor = text.index(cursor, offsetBy: rest.distance(from: rest.startIndex, to: range.upperBound))
+            number += 1
+        }
+        guard !bodies.isEmpty else { return nil }
+        bodies.append(String(text[cursor...]))
+        let intro = String(text[..<start.lowerBound]).trimmed
+        let items = bodies.map { $0.trimmed }
+        guard items.allSatisfy({ !$0.isEmpty }) else { return nil }
+        return (intro, items)
     }
 
     /// Убираем нумерацию заданий: «5)», «№ 12.», «a)».
