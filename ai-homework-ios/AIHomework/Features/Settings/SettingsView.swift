@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var systemModel: ModelAvailability?
     @State private var isClearConfirmationPresented = false
@@ -59,8 +60,8 @@ struct SettingsView: View {
                 } footer: {
                     Text(
                         l(
-                            "AI Homework сначала решает задание точными алгоритмами на iPhone (математика, физика, химия, информатика), а остальное отправляет в выбранную вами нейросеть. Без интернета работает Apple Intelligence.",
-                            "AI Homework first solves a task with exact algorithms on the iPhone (math, physics, chemistry, computer science) and sends the rest to the AI model you chose. Offline, Apple Intelligence is used."
+                            "Без нейросети по API задания решают точные алгоритмы на iPhone (математика, физика, химия, информатика) и, если поддерживается, Apple Intelligence. Если API настроен, текст задания сначала читает выбранная вами нейросеть: простые задачи она передаёт точному решателю на iPhone, остальные решает сама.",
+                            "Without an AI model via API, tasks are solved by exact algorithms on the iPhone (math, physics, chemistry, computer science) and, where supported, by Apple Intelligence. With an API set up, the task text is first read by the AI model you chose: it hands simple tasks to the exact on-device solver and solves the rest itself."
                         ))
                 }
             }
@@ -75,10 +76,19 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: settings.data) { _, _ in
-                settings.save()
+                // Запись с задержкой: при наборе адреса настройки не пишутся на каждый символ.
+                // Ключ API записывает сам `AppSettings` (тоже с задержкой).
+                settings.scheduleSave()
             }
-            .onChange(of: settings.apiKey) { _, _ in
-                settings.saveAPIKey()
+            .onChange(of: scenePhase) { _, phase in
+                guard phase != .active else { return }
+                // Ключ не должен остаться открытым в снимке переключателя приложений.
+                isKeyVisible = false
+                settings.flushPendingSaves()
+            }
+            .onDisappear {
+                isKeyVisible = false
+                settings.flushPendingSaves()
             }
             .task(id: settings.data.languageChoice) {
                 systemModel = await AppleIntelligenceProvider().availability(l)
@@ -117,15 +127,10 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(l("Ключ API", "API key")).font(.caption).foregroundStyle(Palette.inkSubtle)
                 HStack {
-                    Group {
-                        if isKeyVisible {
-                            TextField("sk-…", text: Bindable(settings).apiKey)
-                        } else {
-                            SecureField("sk-…", text: Bindable(settings).apiKey)
-                        }
-                    }
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                    // Ввод — только в защищённом поле: сторонние клавиатуры его не видят.
+                    SecureField("sk-…", text: Bindable(settings).apiKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                     Button {
                         isKeyVisible.toggle()
                     } label: {
@@ -133,8 +138,24 @@ struct SettingsView: View {
                             .foregroundStyle(Palette.inkSubtle)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(l("Показать ключ", "Show key"))
+                    .disabled(settings.apiKey.trimmed.isEmpty)
+                    .accessibilityLabel(isKeyVisible ? l("Скрыть ключ", "Hide key") : l("Показать ключ", "Show key"))
                 }
+                if isKeyVisible, !settings.apiKey.trimmed.isEmpty {
+                    Text(settings.apiKey)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(Palette.inkMuted)
+                        .lineLimit(2)
+                        .privacySensitive()
+                } else if !settings.apiKey.trimmed.isEmpty {
+                    Text(maskedKey(settings.apiKey, host: settings.apiKeyHost))
+                        .font(.caption)
+                        .foregroundStyle(Palette.inkSubtle)
+                }
+            }
+
+            if settings.isAPIKeyBoundToOtherHost {
+                keyHostWarning(settings: settings)
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -159,8 +180,23 @@ struct SettingsView: View {
                 }
             }
 
+            Toggle(isOn: Bindable(settings).data.sendImagesToAPI) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(l("Отправлять изображение в нейросеть", "Send the image to the AI model"))
+                    Text(
+                        l(
+                            "Выключено: в API уходит только распознанный текст. Включено: выделенный фрагмент фото уходит в запрос решения (не диспетчеру) — нужно для чертежей и рукописи.",
+                            "Off: only the recognized text is sent to the API. On: the selected part of the photo goes into the solution request (not to the dispatcher) — useful for drawings and handwriting."
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Palette.inkSubtle)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Button {
-                checkConnection(settings.remoteConfig)
+                checkConnection(settings.remoteConfigForRequest())
             } label: {
                 HStack {
                     Label(l("Проверить и загрузить модели", "Check and load models"), systemImage: "checkmark.shield")
@@ -173,7 +209,7 @@ struct SettingsView: View {
             .disabled(connectionStatus == .checking)
 
             Button {
-                sendTestQuestion(settings.remoteConfig)
+                sendTestQuestion(settings.remoteConfigForRequest())
             } label: {
                 Label(l("Отправить тестовый вопрос", "Send a test question"), systemImage: "paperplane")
             }
@@ -196,10 +232,41 @@ struct SettingsView: View {
         } footer: {
             Text(
                 l(
-                    "Укажите данные из личного кабинета вашего сервиса (apimira, OpenRouter и т. п.). Адрес обычно заканчивается на /v1. Большинство сервисов работают в формате OpenAI. Ключ хранится в защищённой Связке ключей iPhone. Задание и выделенный фрагмент изображения отправляются только на этот адрес и только когда точные алгоритмы не справились.",
-                    "Enter the details from your service's dashboard (apimira, OpenRouter, etc.). The address usually ends with /v1. Most services use the OpenAI format. The key is stored in the secure iPhone Keychain. The task and the selected part of the image are sent only to this address and only when the exact algorithms could not solve it."
+                    "Укажите данные из личного кабинета вашего сервиса (apimira, OpenRouter и т. п.). Адрес обычно заканчивается на /v1. Большинство сервисов работают в формате OpenAI. Ключ хранится в защищённой Связке ключей iPhone и отправляется только на адрес, для которого его ввели. Когда API настроен, текст каждого задания отправляется на этот адрес — даже простого примера: сначала нейросеть-диспетчер решает, кому его отдать, затем при необходимости решает сама. Изображение уходит только при включённой настройке выше.",
+                    "Enter the details from your service's dashboard (apimira, OpenRouter, etc.). The address usually ends with /v1. Most services use the OpenAI format. The key is stored in the secure iPhone Keychain and is sent only to the address it was entered for. With an API set up, the text of every task is sent to this address — even a simple expression: first the dispatcher model decides who solves it, then, if needed, it solves it itself. The image is sent only when the setting above is on."
                 ))
         }
+    }
+
+    /// Ключ под маской: видно только, чем он заканчивается и для какого адреса сохранён.
+    private func maskedKey(_ key: String, host: String?) -> String {
+        let trimmed = key.trimmed
+        let suffix = trimmed.count > 8 ? "…" + String(trimmed.suffix(4)) : "…"
+        guard let host else { return l("Сохранён ключ \(suffix)", "Saved key \(suffix)") }
+        return l("Сохранён ключ \(suffix) для \(host)", "Saved key \(suffix) for \(host)")
+    }
+
+    /// Адрес API изменился: ключ на новый хост не отправляется без явного согласия.
+    private func keyHostWarning(settings: AppSettings) -> some View {
+        let bound = settings.apiKeyHost ?? ""
+        let current = settings.currentAPIHost ?? ""
+        return VStack(alignment: .leading, spacing: 8) {
+            Label(
+                l(
+                    "Ключ сохранён для \(bound). На \(current) он не отправляется — введите ключ для нового адреса.",
+                    "The key was saved for \(bound). It is not sent to \(current) — enter the key for the new address."),
+                systemImage: "exclamationmark.shield"
+            )
+            .font(.footnote)
+            .foregroundStyle(Palette.inkMuted)
+            .fixedSize(horizontal: false, vertical: true)
+            Button(l("Это ключ для \(current) — отправлять туда", "This key is for \(current) — send it there")) {
+                settings.bindAPIKeyToCurrentHost()
+                Haptics.selection()
+            }
+            .font(.footnote.weight(.semibold))
+        }
+        .padding(.vertical, 2)
     }
 
     private func checkConnection(_ config: RemoteAPIConfig) {
@@ -278,8 +345,8 @@ struct SettingsView: View {
         } footer: {
             Text(
                 l(
-                    "Если нет интернета или сервис API недоступен, текстовые задания решает модель Apple Intelligence прямо на iPhone (iOS 26+, iPhone 15 Pro и новее). Она не видит изображения — только распознанный текст.",
-                    "Without internet or when the API service is unavailable, text tasks are solved by the Apple Intelligence model right on the iPhone (iOS 26+, iPhone 15 Pro or later). It does not see images — only the recognized text."
+                    "Если нет интернета или сервис API недоступен, текстовые задания решает модель Apple Intelligence прямо на iPhone (iOS 26+, iPhone 15 Pro и новее) — если она поддерживает язык приложения. Она не видит изображения — только распознанный текст.",
+                    "Without internet or when the API service is unavailable, text tasks are solved by the Apple Intelligence model right on the iPhone (iOS 26+, iPhone 15 Pro or later) — if it supports the app language. It does not see images — only the recognized text."
                 ))
         }
     }
@@ -346,9 +413,14 @@ struct SettingsView: View {
 
     private var privacySection: some View {
         Section(l("Конфиденциальность", "Privacy")) {
-            privacyRow("iphone", l("Точные задачи решаются на устройстве, без сети", "Exact tasks are solved on device, offline"))
-            privacyRow("arrow.up.forward.app", l("Остальное уходит только в выбранный вами API", "Everything else goes only to the API you chose"))
-            privacyRow("key.fill", l("Ключ хранится в Связке ключей", "The key is stored in the Keychain"))
+            privacyRow("iphone", l("Без API задания решаются на устройстве, без сети", "Without an API, tasks are solved on the device, offline"))
+            privacyRow(
+                "arrow.up.forward.app",
+                l("С API текст каждого задания уходит только на указанный вами адрес", "With an API, the text of every task goes only to the address you set"))
+            privacyRow(
+                "photo",
+                l("Изображение — только если вы включили «Отправлять изображение в нейросеть»", "The image only if you turned on “Send the image to the AI model”"))
+            privacyRow("key.fill", l("Ключ хранится в Связке ключей и уходит только на свой адрес", "The key stays in the Keychain and goes only to its own address"))
             privacyRow("person.crop.circle.badge.xmark", l("Без регистрации и аналитики", "No sign-up and no analytics"))
         }
     }

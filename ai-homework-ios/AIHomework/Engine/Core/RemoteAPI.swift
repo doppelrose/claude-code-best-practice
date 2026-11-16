@@ -39,7 +39,18 @@ enum RemoteAPIError: Error, Equatable, Sendable {
     /// Сервер не ответил за отведённое время.
     case timedOut
 
+    /// Сообщение для показа сразу (в настройках при проверке подключения): с текстом ответа сервера.
     func message(_ l: L10n) -> String {
+        message(l, includeServerDetails: true)
+    }
+
+    /// Сообщение, которое можно хранить в истории и PDF: только код и наше пояснение,
+    /// без сырого текста сервера (там бывают фрагменты ключа, HTML прокси и прочий мусор).
+    func storedMessage(_ l: L10n) -> String {
+        message(l, includeServerDetails: false)
+    }
+
+    func message(_ l: L10n, includeServerDetails: Bool) -> String {
         switch self {
         case .invalidBaseURL:
             return l(
@@ -58,16 +69,19 @@ enum RemoteAPIError: Error, Equatable, Sendable {
             case 429: hint = l("Слишком много запросов — попробуйте через минуту.", "Too many requests — try again in a minute.")
             default: hint = ""
             }
-            let details = message.isEmpty ? "" : " \(message)"
+            let details = message.isEmpty || !includeServerDetails ? "" : " \(message)"
             return l("Сервер ответил ошибкой \(status).", "The server returned error \(status).") + details + (hint.isEmpty ? "" : " " + hint)
         case .emptyResponse:
-            return l("Нейросеть вернула пустой ответ.", "The model returned an empty answer.")
+            return l(
+                "Нейросеть вернула пустой ответ. «Рассуждающие» модели иногда тратят весь лимит ответа на рассуждение — попробуйте ещё раз или выберите другую модель.",
+                "The model returned an empty answer. Reasoning models sometimes spend the whole answer limit on reasoning — try again or choose another model.")
         case .refusal(let reason):
-            return l("Нейросеть отказалась отвечать на это задание.", "The model declined to answer this task.") + (reason.isEmpty ? "" : " \(reason)")
+            return l("Нейросеть отказалась отвечать на это задание.", "The model declined to answer this task.")
+                + (reason.isEmpty || !includeServerDetails ? "" : " \(reason)")
         case .malformed:
             return l("Не удалось разобрать ответ сервера. Проверьте формат API в настройках.", "Could not read the server response. Check the API format in Settings.")
         case .offline(let detail):
-            return l("Нет связи с сервером API.", "Cannot reach the API server.") + (detail.isEmpty ? "" : " \(detail)")
+            return l("Нет связи с сервером API.", "Cannot reach the API server.") + (detail.isEmpty || !includeServerDetails ? "" : " \(detail)")
         case .timedOut:
             return l(
                 "Нейросеть не ответила вовремя. Проверьте интернет (и что VPN не мешает соединению) и попробуйте ещё раз.",
@@ -96,6 +110,72 @@ enum RemoteAPI {
         let isLocal = host == "localhost" || host == "127.0.0.1"
         guard scheme == "https" || (scheme == "http" && isLocal) else { return nil }
         return url
+    }
+
+    /// Хост, для которого сохраняется ключ: ключ уходит только на тот адрес, для которого его ввели.
+    static func keyHost(from text: String) -> String? {
+        baseURL(from: text)?.host?.lowercased()
+    }
+
+    /// Можно ли идти по редиректу: только в пределах того же адреса (схема, хост и порт).
+    /// Иначе заголовок с ключом может уйти на посторонний сервер.
+    static func allowsRedirect(from original: URL, to target: URL) -> Bool {
+        guard let fromHost = original.host?.lowercased(), let toHost = target.host?.lowercased() else { return false }
+        let fromScheme = original.scheme?.lowercased()
+        let toScheme = target.scheme?.lowercased()
+        guard fromHost == toHost, fromScheme == toScheme, toScheme == "https" || (toScheme == "http" && fromScheme == "http") else {
+            return false
+        }
+        return effectivePort(original) == effectivePort(target)
+    }
+
+    private static func effectivePort(_ url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "https": return 443
+        case "http": return 80
+        default: return nil
+        }
+    }
+
+    /// Прячет в тексте всё, что похоже на ключ API: сам ключ и строки вида `sk-…`, `Bearer …`.
+    static func redactingSecrets(_ text: String, secrets: [String] = []) -> String {
+        var result = text
+        for secret in secrets {
+            let value = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard value.count >= 6 else { continue }
+            result = result.replacingOccurrences(of: value, with: "•••")
+        }
+        result = Rx.replace("\\b(sk|pk|rk)-[A-Za-z0-9_\\-]{6,}", in: result, with: "$1-•••", caseInsensitive: false)
+        result = Rx.replace("(Bearer\\s+)[A-Za-z0-9._\\-]{6,}", in: result, with: "$1•••")
+        return result
+    }
+
+    /// Ключ из заголовков готового запроса — чтобы не показывать его, если сервер вернул его в ошибке.
+    static func secrets(in request: RemoteAPIRequest) -> [String] {
+        var result: [String] = []
+        for (name, value) in request.headers {
+            switch name.lowercased() {
+            case "authorization":
+                result.append(value.hasPrefix("Bearer ") ? String(value.dropFirst("Bearer ".count)) : value)
+            case "x-api-key":
+                result.append(value)
+            default:
+                continue
+            }
+        }
+        return result
+    }
+
+    /// Ответ ошибкой, после которой имеет смысл повторить запрос без лимита токенов:
+    /// часть моделей отвергает `max_tokens` (HTTP 400), а «рассуждающие» модели
+    /// могут израсходовать небольшой лимит на рассуждение и вернуть пустой ответ.
+    static func shouldRetryWithoutTokenLimit(_ error: RemoteAPIError, retryEmptyResponse: Bool) -> Bool {
+        switch error {
+        case .http(let status, _): return status == 400
+        case .emptyResponse: return retryEmptyResponse
+        default: return false
+        }
     }
 
     private static func endpoint(_ base: URL, _ path: String) -> URL {

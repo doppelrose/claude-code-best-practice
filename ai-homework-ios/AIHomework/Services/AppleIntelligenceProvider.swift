@@ -31,12 +31,14 @@ struct AppleIntelligenceProvider: LanguageModelProvider {
                                 "Системная модель работает на этом устройстве и используется для заданий, которые не решаются точными алгоритмами.",
                                 "The system model runs on this device and is used for tasks that the exact algorithms cannot solve."))
                     }
+                    // Язык не поддерживается — модель не вызываем: ученик ждал бы до минуты
+                    // и получал ошибку или слабый ответ.
                     return ModelAvailability(
-                        isAvailable: true,
-                        title: l("Готова, но язык поддерживается не полностью", "Ready, but the language is not fully supported"),
+                        isAvailable: false,
+                        title: l("Язык не поддерживается", "Language not supported"),
                         detail: l(
-                            "Системная модель пока официально не поддерживает русский язык. Она может отказаться отвечать или ответить хуже, чем на поддерживаемых языках — в этом случае приложение сообщит об ошибке.",
-                            "The system model does not officially support this language yet. It may refuse to answer or answer worse than in supported languages — the app will report the error in that case."
+                            "Системная модель Apple Intelligence на этом устройстве не поддерживает русский язык, поэтому приложение её не использует. Без интернета работают только точные алгоритмы; для остальных заданий подключите нейросеть по API.",
+                            "The Apple Intelligence system model on this device does not support this language, so the app does not use it. Offline, only the exact algorithms work; connect an AI model via API for other tasks."
                         ))
                 case .unavailable(let reason):
                     switch reason {
