@@ -9,7 +9,6 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var systemModel: ModelAvailability?
-    @State private var isClearConfirmationPresented = false
     @State private var availableModels: [String] = []
     @State private var connectionStatus: ConnectionStatus = .idle
     @State private var isKeyVisible = false
@@ -48,11 +47,7 @@ struct SettingsView: View {
                 actionButtonSection
                 privacySection
 
-                Section(l("Данные", "Data")) {
-                    Button(l("Удалить всю историю", "Delete all history"), role: .destructive) {
-                        isClearConfirmationPresented = true
-                    }
-                }
+                HistoryDataSection(l: l)
 
                 Section {
                     LabeledContent(l("Версия", "Version"), value: appVersion)
@@ -82,15 +77,6 @@ struct SettingsView: View {
             }
             .task(id: settings.data.languageChoice) {
                 systemModel = await AppleIntelligenceProvider().availability(l)
-            }
-            .confirmationDialog(
-                l("Удалить все задания?", "Delete all tasks?"), isPresented: $isClearConfirmationPresented, titleVisibility: .visible
-            ) {
-                Button(l("Удалить всё", "Delete all"), role: .destructive) {
-                    try? context.delete(model: SolvedProblem.self)
-                    try? context.save()
-                    Haptics.warning()
-                }
             }
         }
     }
@@ -365,5 +351,75 @@ struct SettingsView: View {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         return "\(version) (\(build))"
+    }
+}
+
+// MARK: - Data
+
+/// Раздел «Данные»: удаление сохранённых фото и всей истории.
+/// Удаление идёт через `HistoryStore` — тем же способом, что и в истории, с сообщением об ошибке.
+private struct HistoryDataSection: View {
+    let l: L10n
+
+    @Environment(\.modelContext) private var context
+    @State private var isClearConfirmationPresented = false
+    @State private var isPhotoRemovalPresented = false
+    @State private var resultMessage: String?
+
+    var body: some View {
+        Section {
+            Button(l("Удалить сохранённые фото", "Delete saved photos"), role: .destructive) {
+                isPhotoRemovalPresented = true
+            }
+            .confirmationDialog(
+                l("Удалить фото из истории?", "Delete photos from history?"), isPresented: $isPhotoRemovalPresented,
+                titleVisibility: .visible
+            ) {
+                Button(l("Удалить фото", "Delete photos"), role: .destructive) { removePhotos() }
+            } message: {
+                Text(l("Решения и условия останутся, удалятся только фото и миниатюры.", "Solutions and tasks stay; only photos and thumbnails are deleted."))
+            }
+
+            Button(l("Удалить всю историю", "Delete all history"), role: .destructive) {
+                isClearConfirmationPresented = true
+            }
+            .confirmationDialog(
+                l("Удалить все задания?", "Delete all tasks?"), isPresented: $isClearConfirmationPresented, titleVisibility: .visible
+            ) {
+                Button(l("Удалить всё", "Delete all"), role: .destructive) { deleteAll() }
+            } message: {
+                Text(l("Это действие нельзя отменить.", "This cannot be undone."))
+            }
+
+            if let resultMessage {
+                Text(resultMessage)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.inkSubtle)
+            }
+        } header: {
+            Text(l("Данные", "Data"))
+        }
+    }
+
+    private func removePhotos() {
+        if let cleared = HistoryStore.removeAllPhotos(in: context) {
+            Haptics.warning()
+            resultMessage = cleared == 0
+                ? l("Сохранённых фото нет.", "There are no saved photos.")
+                : l("Фото удалены: \(cleared).", "Photos deleted: \(cleared).")
+        } else {
+            Haptics.error()
+            resultMessage = HistoryStore.saveFailedMessage(l)
+        }
+    }
+
+    private func deleteAll() {
+        if HistoryStore.deleteAll(in: context) {
+            Haptics.warning()
+            resultMessage = l("История удалена.", "History deleted.")
+        } else {
+            Haptics.error()
+            resultMessage = HistoryStore.saveFailedMessage(l)
+        }
     }
 }
