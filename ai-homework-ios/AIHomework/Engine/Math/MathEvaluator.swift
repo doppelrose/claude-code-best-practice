@@ -52,13 +52,13 @@ struct MathEvaluator: Sendable {
 
     func evaluate(_ expr: Expr, _ environment: [String: MathValue] = [:]) throws -> MathValue {
         var steps: [EvaluationStep]? = nil
-        return try eval(expr, environment, &steps)
+        return try eval(expr, environment, &steps, depth: 0)
     }
 
     /// Вычисление «по действиям» — с записью каждой операции.
     func evaluateWithSteps(_ expr: Expr, _ environment: [String: MathValue] = [:]) throws -> (value: MathValue, steps: [EvaluationStep]) {
         var steps: [EvaluationStep]? = []
-        let value = try eval(expr, environment, &steps)
+        let value = try eval(expr, environment, &steps, depth: 0)
         return (value, steps ?? [])
     }
 
@@ -70,7 +70,15 @@ struct MathEvaluator: Sendable {
 
     // MARK: - Core
 
-    private func eval(_ expr: Expr, _ env: [String: MathValue], _ steps: inout [EvaluationStep]?) throws -> MathValue {
+    /// Глубже этого рекурсия не идёт: поддерево вычисляется итеративно с явным стеком.
+    /// Так обычные (неглубокие) выражения считаются быстро, а глубокое дерево — например,
+    /// длинная цепочка `1 + 1 + … + 1` — не переполняет стек потока (AUD-14).
+    static let recursionLimit = 48
+
+    private func eval(_ expr: Expr, _ env: [String: MathValue], _ steps: inout [EvaluationStep]?, depth: Int) throws -> MathValue {
+        if depth >= MathEvaluator.recursionLimit {
+            return try evalIteratively(expr, env, &steps)
+        }
         switch expr {
         case .num(let r):
             return .exact(r)
@@ -84,24 +92,88 @@ struct MathEvaluator: Sendable {
             }
             return value
         case .neg(let inner):
-            return try negate(try eval(inner, env, &steps))
+            return try negate(try eval(inner, env, &steps, depth: depth + 1))
         case .bin(let op, let a, let b):
-            let left = try eval(a, env, &steps)
-            let right = try eval(b, env, &steps)
-            let result = try apply(op, left, right)
-            steps?.append(EvaluationStep(operation: .bin(op, left.literal, right.literal), result: result))
-            return result
+            let left = try eval(a, env, &steps, depth: depth + 1)
+            let right = try eval(b, env, &steps, depth: depth + 1)
+            return try combine(op, left, right, &steps)
         case .fn(let function, let args):
             var values: [MathValue] = []
             for arg in args {
-                values.append(try eval(arg, env, &steps))
+                values.append(try eval(arg, env, &steps, depth: depth + 1))
             }
-            let result = try apply(function, values)
-            if function != .deg {
-                steps?.append(EvaluationStep(operation: .fn(function, values.map { $0.literal }), result: result))
-            }
-            return result
+            return try call(function, values, &steps)
         }
+    }
+
+    private func combine(_ op: BinOp, _ left: MathValue, _ right: MathValue, _ steps: inout [EvaluationStep]?) throws -> MathValue {
+        let result = try apply(op, left, right)
+        steps?.append(EvaluationStep(operation: .bin(op, left.literal, right.literal), result: result))
+        return result
+    }
+
+    private func call(_ function: MathFn, _ values: [MathValue], _ steps: inout [EvaluationStep]?) throws -> MathValue {
+        let result = try apply(function, values)
+        if function != .deg {
+            steps?.append(EvaluationStep(operation: .fn(function, values.map { $0.literal }), result: result))
+        }
+        return result
+    }
+
+    /// Обход в том же порядке, что и рекурсивный (слева направо, после операндов — операция),
+    /// поэтому и ошибки, и шаги «по действиям» совпадают.
+    private func evalIteratively(_ root: Expr, _ env: [String: MathValue], _ steps: inout [EvaluationStep]?) throws -> MathValue {
+        enum Work {
+            case visit(Expr)
+            case negate
+            case binary(BinOp)
+            case function(MathFn, Int)
+        }
+        var work: [Work] = [.visit(root)]
+        var values: [MathValue] = []
+        while let item = work.popLast() {
+            switch item {
+            case .visit(let expr):
+                switch expr {
+                case .num(let r):
+                    values.append(.exact(r))
+                case .real(let d):
+                    values.append(.approx(d))
+                case .const(let c):
+                    values.append(c == .pi ? .piMultiple(.one) : .approx(c.value))
+                case .sym(let name):
+                    guard let value = env[name] else {
+                        throw MathError.unsupported(detail: "unbound variable \(name)")
+                    }
+                    values.append(value)
+                case .neg(let inner):
+                    work.append(.negate)
+                    work.append(.visit(inner))
+                case .bin(let op, let a, let b):
+                    work.append(.binary(op))
+                    work.append(.visit(b))
+                    work.append(.visit(a))
+                case .fn(let function, let args):
+                    work.append(.function(function, args.count))
+                    for arg in args.reversed() { work.append(.visit(arg)) }
+                }
+            case .negate:
+                guard let value = values.popLast() else { throw MathError.syntax(detail: "−") }
+                values.append(try negate(value))
+            case .binary(let op):
+                guard values.count >= 2 else { throw MathError.syntax(detail: "…") }
+                let right = values.removeLast()
+                let left = values.removeLast()
+                values.append(try combine(op, left, right, &steps))
+            case .function(let function, let count):
+                guard values.count >= count else { throw MathError.syntax(detail: function.displayName) }
+                let arguments = Array(values.suffix(count))
+                values.removeLast(count)
+                values.append(try call(function, arguments, &steps))
+            }
+        }
+        guard values.count == 1, let result = values.first else { throw MathError.syntax(detail: "…") }
+        return result
     }
 
     private func negate(_ value: MathValue) throws -> MathValue {
@@ -324,6 +396,60 @@ struct MathEvaluator: Sendable {
             return fraction.isZero ? .exact(.zero) : .piMultiple(fraction)
         }
         return .approx(radians)
+    }
+
+    /// Точное целое значение выражения из целых чисел, «+», «−», «·», натуральной степени, модуля
+    /// и факториала — для ответов, не помещающихся в 64 бита (`2^100`, `10^20 + 1`, `30!`).
+    /// `nil` — если в выражении есть что-то другое; `overflow` — если в ответе больше `maxDigits` цифр.
+    func exactInteger(_ expr: Expr, maxDigits: Int = 1000) throws -> BigInteger? {
+        try exactInteger(expr, maxDigits: maxDigits, depth: 0)
+    }
+
+    private func exactInteger(_ expr: Expr, maxDigits: Int, depth: Int) throws -> BigInteger? {
+        guard depth < MathParser.maxTreeDepth * 2 else { return nil }
+        func operand(_ e: Expr) throws -> BigInteger? { try exactInteger(e, maxDigits: maxDigits, depth: depth + 1) }
+        switch expr {
+        case .num(let r):
+            return r.isInteger ? BigInteger(r.num) : nil
+        case .neg(let inner):
+            return try operand(inner)?.negated
+        case .bin(let op, let a, let b):
+            guard let left = try operand(a), let right = try operand(b) else { return nil }
+            let result: BigInteger
+            switch op {
+            case .add: result = left + right
+            case .sub: result = left - right
+            case .mul: result = left * right
+            case .pow:
+                guard let exponent = right.intValue, exponent >= 0 else {
+                    // Отрицательный или огромный показатель: дробь или заведомо слишком большое число.
+                    if right.isNegative { return nil }
+                    throw MathError.overflow
+                }
+                if left.isZero, exponent == 0 { throw MathError.domain(detail: "0⁰") }
+                result = try left.power(exponent, maxDigits: maxDigits)
+            case .div:
+                return nil
+            }
+            guard result.digitCount <= maxDigits else { throw MathError.overflow }
+            return result
+        case .fn(.abs, let args) where args.count == 1:
+            return try operand(args[0])?.magnitude
+        case .fn(.factorial, let args) where args.count == 1:
+            guard let n = try operand(args[0])?.intValue else { return nil }
+            guard n >= 0 else { throw MathError.domain(detail: "n!") }
+            guard n <= 1000 else { throw MathError.overflow }
+            var result = BigInteger(1)
+            if n >= 2 {
+                for k in 2...n {
+                    result = result * BigInteger(k)
+                    guard result.digitCount <= maxDigits else { throw MathError.overflow }
+                }
+            }
+            return result
+        default:
+            return nil
+        }
     }
 
     /// `log_base(value)`, если ответ — рациональное число с небольшим знаменателем.
