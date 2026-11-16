@@ -84,6 +84,25 @@ indirect enum Expr: Hashable, Sendable {
 
     var isConstant: Bool { variables.isEmpty }
 
+    /// Глубина дерева. Считается без рекурсии, поэтому безопасна для сколь угодно глубоких деревьев.
+    var treeDepth: Int {
+        var maximum = 0
+        var stack: [(Expr, Int)] = [(self, 1)]
+        while let (node, depth) = stack.popLast() {
+            maximum = Swift.max(maximum, depth)
+            switch node {
+            case .num, .real, .sym, .const: break
+            case .neg(let inner): stack.append((inner, depth + 1))
+            case .bin(_, let a, let b):
+                stack.append((a, depth + 1))
+                stack.append((b, depth + 1))
+            case .fn(_, let args):
+                for arg in args { stack.append((arg, depth + 1)) }
+            }
+        }
+        return maximum
+    }
+
     /// Содержит ли выражение хотя бы одну операцию или функцию (а не просто число/переменную).
     var hasOperation: Bool {
         switch self {
