@@ -25,12 +25,24 @@ parser.add_argument("--bundle-id", default="com.example.aihomework")
 parser.add_argument("--out", default="source.json")
 args = parser.parse_args()
 
+# Строка запроса доступа к камере берётся из InfoPlist.xcstrings — как в самом приложении,
+# чтобы source.json не расходился с тем, что видит пользователь.
+INFOPLIST_STRINGS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "AIHomework", "Resources", "InfoPlist.xcstrings")
+
+
+def camera_usage_description(language="en"):
+    with open(INFOPLIST_STRINGS, encoding="utf-8") as handle:
+        strings = json.load(handle)["strings"]
+    return strings["NSCameraUsageDescription"]["localizations"][language]["stringUnit"]["value"]
+
+
 description = (
     "Решатель школьных заданий: скриншот по кнопке действия или фото, выделение части задания пальцем, "
-    "пошаговые решения. Типовые задачи по математике, физике, химии и информатике решаются прямо на iPhone, "
-    "остальное — нейросетью по вашему API-ключу; без интернета — Apple Intelligence.\n\n"
+    "пошаговые решения. Без API типовые задачи по математике, физике, химии и информатике решаются прямо на iPhone; "
+    "с API текст задания уходит в нейросеть по вашему ключу (изображение — только если вы это включили).\n\n"
     "A homework solver: Action Button screenshot or photo, circle the task, step-by-step solutions. "
-    "Standard problems are solved on the iPhone, the rest by an AI model with your API key."
+    "Without an API, standard problems are solved on the iPhone; with an API, the task text goes to an AI model "
+    "with your key (the image only if you turn that on)."
 )
 
 source = {
@@ -46,7 +58,7 @@ source = {
             "name": "AI Homework",
             "bundleIdentifier": args.bundle_id,
             "developerName": "AI Homework",
-            "subtitle": "Решение заданий на устройстве",
+            "subtitle": "Решение школьных заданий",
             "localizedDescription": description,
             "iconURL": args.icon_url,
             "tintColor": "#7C5CFC",
@@ -66,7 +78,7 @@ source = {
             "appPermissions": {
                 "entitlements": [],
                 "privacy": {
-                    "NSCameraUsageDescription": "The camera is used to take a photo of a homework problem. Photos are processed on this device."
+                    "NSCameraUsageDescription": camera_usage_description()
                 },
             },
         }
