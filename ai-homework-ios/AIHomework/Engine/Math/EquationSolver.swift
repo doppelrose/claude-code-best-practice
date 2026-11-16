@@ -24,8 +24,8 @@ enum PolynomialRootFinder {
 
     static func sortedDistinct(_ roots: [RootValue]) -> [RootValue] {
         var result: [RootValue] = []
-        for root in roots.sorted(by: { $0.double < $1.double }) {
-            if let last = result.last, abs(last.double - root.double) <= 1e-9 * max(1, abs(root.double)) {
+        for root in roots.sorted(by: { $0.preciseDouble < $1.preciseDouble }) {
+            if let last = result.last, abs(last.preciseDouble - root.preciseDouble) <= 1e-9 * max(1, abs(root.preciseDouble)) {
                 // Из двух совпадающих оставляем точный.
                 if !last.isExact, root.isExact { result[result.count - 1] = root }
                 continue
@@ -49,7 +49,7 @@ enum PolynomialRootFinder {
         let scale = try twoA.reciprocal()
         let first = try Surd.make(rationalPart: center, coefficient: scale.negated, sqrtOf: discriminant)
         let second = try Surd.make(rationalPart: center, coefficient: scale, sqrtOf: discriminant)
-        return [first, second].sorted { $0.double < $1.double }
+        return [first, second].sorted { $0.preciseDouble < $1.preciseDouble }
     }
 
     /// Биквадратное уравнение `ax⁴ + bx² + c = 0` через замену `t = x²`.
@@ -83,6 +83,8 @@ struct EquationOutcome: Sendable {
         case roots([RootValue])
         case none
         case all
+        /// Объединение промежутков (тождество на ОДЗ, «x ≥ 0» и т. п.).
+        case intervals([SolutionInterval])
     }
 
     var kindTitle: String
@@ -118,6 +120,12 @@ struct EquationSolver: Sendable {
         let difference = Expr.sub(lhs, rhs)
 
         guard let function = try Algebra.rationalFunction(difference) else {
+            if let outcome = try solveWithAbsoluteValues(lhs: lhs, rhs: rhs, variable: x, original: original) {
+                return outcome
+            }
+            if let outcome = try solveRadical(lhs: lhs, rhs: rhs, variable: x, original: original) {
+                return outcome
+            }
             return try solveNumerically(lhs: lhs, rhs: rhs, variable: x, original: original)
         }
 
@@ -151,6 +159,21 @@ struct EquationSolver: Sendable {
                     l("Переменная сократилась.", "The variable cancels out."),
                     formula: simplified))
             if isIdentity {
+                let exclusions = domainExclusions(lhs, rhs, variable: x)
+                if !exclusions.isEmpty {
+                    steps.append(
+                        SolutionStep(
+                            l("Получили верное равенство", "We get a true statement"),
+                            l(
+                                "Равенство выполняется при всех \(x) из области допустимых значений: \(exclusionText(exclusions, variable: x)).",
+                                "The equality holds for every \(x) in the domain: \(exclusionText(exclusions, variable: x)).")))
+                    return intervalOutcome(
+                        kind: l("Тождество", "Identity"), intervals: complement(of: exclusions), variable: x,
+                        approximate: exclusions.contains { !$0.isExact }, steps: steps,
+                        explanation: l(
+                            "После упрощения остаётся верное равенство 0 = 0, но значения, при которых знаменатель исходного уравнения равен нулю, не подходят.",
+                            "After simplification the true statement 0 = 0 remains, but the values that make a denominator of the original equation zero are excluded."))
+                }
                 steps.append(
                     SolutionStep(
                         l("Получили верное равенство", "We get a true statement"),
@@ -415,7 +438,7 @@ struct EquationSolver: Sendable {
             steps.append(
                 SolutionStep(
                     l("D = 0 — уравнение имеет один корень", "D = 0 — the equation has one root"),
-                    formula: "\(x) = −b/(2a) = \(fmt.rootWithApproximation(root))"))
+                    formula: "\(x) = −b/(2a) = \(rootWithApproximation(root))"))
         } else if roots.count == 2 {
             let rootOfD: String
             if let exact = discriminant.exactRoot(2) {
@@ -431,7 +454,7 @@ struct EquationSolver: Sendable {
             steps.append(
                 SolutionStep(
                     l("Найдём корни", "Find the roots"),
-                    formula: "\(x)₁ = \(fmt.rootWithApproximation(roots[0]))\n\(x)₂ = \(fmt.rootWithApproximation(roots[1]))"))
+                    formula: "\(x)₁ = \(rootWithApproximation(roots[0]))\n\(x)₂ = \(rootWithApproximation(roots[1]))"))
         }
         return roots
     }
@@ -474,7 +497,7 @@ struct EquationSolver: Sendable {
             steps.append(
                 SolutionStep(
                     l("Обратная замена: \(x)² = \(tText)", "Back-substitute: \(x)² = \(tText)"),
-                    formula: pair.map { "\(x) = \(fmt.rootWithApproximation($0))" }.joined(separator: "\n")))
+                    formula: pair.map { "\(x) = \(rootWithApproximation($0))" }.joined(separator: "\n")))
         }
         return PolynomialRootFinder.sortedDistinct(roots)
     }
@@ -522,7 +545,24 @@ struct EquationSolver: Sendable {
         var formulas: [String] = []
         var approximate = false
         var candidates: [RootValue] = []
-        if degree == 0 {
+        if UnivariatePolynomial.isZero(coefficients) {
+            // Числитель тождественно равен нулю: подходит любое x из ОДЗ (AUD-01).
+            let exclusions = PolynomialRootFinder.sortedDistinct(excluded + domainExclusions(lhs, rhs, variable: x))
+            steps.append(
+                SolutionStep(
+                    l("Получили верное равенство 0 = 0", "We get the true statement 0 = 0"),
+                    l(
+                        "Числитель равен нулю при любом \(x), поэтому подходят все значения из области допустимых значений: \(exclusionText(exclusions, variable: x)).",
+                        "The numerator is zero for every \(x), so every value in the domain works: \(exclusionText(exclusions, variable: x))."
+                    )))
+            return intervalOutcome(
+                kind: l("Дробно-рациональное уравнение", "Rational equation"), intervals: complement(of: exclusions), variable: x,
+                approximate: exclusions.contains { !$0.isExact }, steps: steps,
+                explanation: l(
+                    "После приведения к общему знаменателю числитель обратился в ноль: равенство верно при всех допустимых значениях. Значения, при которых знаменатель равен нулю, в ответ не входят.",
+                    "After bringing to a common denominator the numerator vanished: the equality holds for all admissible values. The values that make a denominator zero are excluded."
+                ))
+        } else if degree == 0 {
             candidates = []
         } else if degree == 1 {
             let root = try coefficients[0].negated / coefficients[1]
@@ -536,7 +576,7 @@ struct EquationSolver: Sendable {
         var roots: [RootValue] = []
         var extraneous: [RootValue] = []
         for candidate in candidates {
-            let isExcluded = excluded.contains { abs($0.double - candidate.double) <= 1e-9 * max(1, abs(candidate.double)) }
+            let isExcluded = excluded.contains { abs($0.preciseDouble - candidate.preciseDouble) <= 1e-9 * max(1, abs(candidate.preciseDouble)) }
             if isExcluded {
                 extraneous.append(candidate)
             } else {
@@ -617,7 +657,210 @@ struct EquationSolver: Sendable {
             isApproximate: false)
     }
 
+    // MARK: - Absolute values
+
+    /// Уравнение с модулями (и √(u²) = |u|): раскрываем модули на промежутках знакопостоянства.
+    /// Ответ точный и полный — без численного поиска на ограниченном отрезке (AUD-02, AUD-03).
+    private func solveWithAbsoluteValues(lhs: Expr, rhs: Expr, variable x: String, original: String) throws -> EquationOutcome? {
+        let left = PiecewiseAnalysis.rewritingSquareRootOfSquare(lhs)
+        let right = PiecewiseAnalysis.rewritingSquareRootOfSquare(rhs)
+        guard PiecewiseAnalysis.containsAbs(left) || PiecewiseAnalysis.containsAbs(right),
+            let result = try PiecewiseAnalysis.solve(.sub(left, right), relation: .eq, variable: x)
+        else { return nil }
+
+        var steps: [SolutionStep] = [SolutionStep(l("Запишем уравнение", "Write the equation"), formula: original)]
+        if left != lhs || right != rhs {
+            steps.append(
+                SolutionStep(
+                    l("Заменим √(a²) на |a|", "Replace √(a²) with |a|"),
+                    l("Арифметический квадратный корень из квадрата равен модулю.", "The square root of a square equals the absolute value."),
+                    formula: "\(fmt.expr(left)) = \(fmt.expr(right))"))
+        }
+        steps += PiecewiseAnalysis.openingSteps(result, lhs: left, rhs: right, relation: .eq, variable: x, l: l, fmt: fmt)
+        let kind = l("Уравнение с модулем", "Equation with absolute value")
+        let explanation = l(
+            "Модуль раскрывается по определению: |a| = a при a ≥ 0 и |a| = −a при a < 0. Точки, где выражения под модулем равны нулю, делят прямую на промежутки; на каждом решаем своё уравнение и оставляем только корни, попавшие в этот промежуток.",
+            "An absolute value is opened by definition: |a| = a for a ≥ 0 and |a| = −a for a < 0. The points where the expressions inside are zero split the line into intervals; on each we solve its own equation and keep only the roots lying in that interval."
+        )
+
+        if result.intervals.allSatisfy({ $0.isPoint }) {
+            let roots = result.intervals.compactMap { $0.lower }
+            return finish(
+                kind: kind, roots: roots, lhs: lhs, rhs: rhs, variable: x, steps: steps, formulas: ["|a| = a, a ≥ 0;  |a| = −a, a < 0"],
+                approximate: result.approximate, explanation: explanation)
+        }
+        steps.append(
+            SolutionStep(
+                l("Равенство выполняется на целом промежутке", "The equality holds on a whole interval"),
+                l(
+                    "На этом промежутке после раскрытия модулей получается верное равенство, поэтому подходит каждое его значение.",
+                    "On this interval opening the absolute values gives a true statement, so every value in it works."),
+                formula: InequalitySolver(lang: l.lang, formatter: fmt).setText(result.intervals, variable: x)))
+        return intervalOutcome(
+            kind: kind, intervals: result.intervals, variable: x, approximate: result.approximate, steps: steps,
+            explanation: explanation)
+    }
+
+    // MARK: - Radical equations
+
+    private static let radicalSymbol = "__sqrt"
+
+    /// Аргументы всех квадратных корней, зависящих от переменной.
+    private func squareRootArguments(_ expr: Expr) -> Set<Expr> {
+        switch expr {
+        case .num, .real, .sym, .const: return []
+        case .neg(let inner): return squareRootArguments(inner)
+        case .bin(_, let a, let b): return squareRootArguments(a).union(squareRootArguments(b))
+        case .fn(let function, let args):
+            var result = args.reduce(into: Set<Expr>()) { $0.formUnion(squareRootArguments($1)) }
+            if function == .sqrt, args.count == 1, !args[0].isConstant { result.insert(args[0]) }
+            return result
+        }
+    }
+
+    /// Иррациональное уравнение с одним корнем √A (A — многочлен): уединяем корень и возводим
+    /// в квадрат, посторонние корни отсеивает проверка подстановкой. Также √A = √B.
+    private func solveRadical(lhs: Expr, rhs: Expr, variable x: String, original: String) throws -> EquationOutcome? {
+        let difference = Expr.sub(lhs, rhs)
+        let arguments = squareRootArguments(difference)
+        let kind = l("Иррациональное уравнение", "Radical equation")
+        let explanation = l(
+            "Корень уединяют и возводят обе части в квадрат. При этом могут появиться посторонние корни, поэтому каждый найденный корень проверяют подстановкой в исходное уравнение.",
+            "Isolate the root and square both sides. This may introduce extraneous roots, so each root found is checked by substitution into the original equation."
+        )
+        var steps: [SolutionStep] = [SolutionStep(l("Запишем уравнение", "Write the equation"), formula: original)]
+
+        // √A = √B.
+        if arguments.count == 2, case .fn(.sqrt, let leftArgs) = lhs, case .fn(.sqrt, let rightArgs) = rhs,
+            let a = leftArgs.first, let b = rightArgs.first,
+            let function = try Algebra.rationalFunction(.sub(a, b)),
+            Set(function.numerator.variables).union(function.denominator.variables).isSubset(of: [x]),
+            let coefficients = function.numerator.coefficients(in: x) ?? Optional([function.numerator.constantTerm]),
+            !UnivariatePolynomial.isZero(coefficients)
+        {
+            steps.append(
+                SolutionStep(
+                    l("Возведём обе части в квадрат", "Square both sides"),
+                    l(
+                        "Корни равны, когда равны подкоренные выражения и они неотрицательны.",
+                        "The roots are equal when the radicands are equal and non-negative."),
+                    formula: "\(fmt.expr(a)) = \(fmt.expr(b))"))
+            let candidates = try PolynomialRootFinder.realRoots(coefficients)
+            return finish(
+                kind: kind, roots: candidates, lhs: lhs, rhs: rhs, variable: x, steps: steps, formulas: [],
+                approximate: candidates.contains { !$0.isExact }, explanation: explanation)
+        }
+
+        guard arguments.count == 1, let radicand = arguments.first, squareRootArguments(radicand).isEmpty,
+            !x.hasPrefix("__"), let a = try Algebra.polynomial(radicand), Set(a.variables).isSubset(of: [x])
+        else { return nil }
+        let s = Self.radicalSymbol
+        let replaced = PiecewiseAnalysis.replacing(difference, .fn(.sqrt, [radicand]), with: .sym(s))
+        guard let function = try Algebra.rationalFunction(replaced),
+            Set(function.numerator.variables).union(function.denominator.variables).isSubset(of: [x, s])
+        else { return nil }
+
+        // Числитель N(x, s) = P(x) + Q(x)·s, где s² = A.
+        var p = Polynomial.zero
+        var q = Polynomial.zero
+        for (monomial, coefficient) in function.numerator.terms {
+            let k = monomial.degree(in: s)
+            var powers = monomial.powers
+            powers[s] = nil
+            let term = try Polynomial(terms: [Monomial(powers: powers): coefficient]) * (try a.power(k / 2))
+            if k % 2 == 0 { p = try p + term } else { q = try q + term }
+        }
+
+        if p.isZero, q.isZero {
+            // Тождество: верно везде, где определён корень, т. е. при A ≥ 0.
+            guard function.denominator.degree(in: s) == 0 else { return nil }
+            var intervals = try InequalitySolver(lang: l.lang, formatter: fmt)
+                .solve(lhs: radicand, rhs: .num(.zero), relation: .ge, variable: x).intervals
+            var exclusions = domainExclusions(lhs, rhs, variable: x)
+            if let coefficients = function.denominator.coefficients(in: x), UnivariatePolynomial.degree(coefficients) > 0 {
+                exclusions += try PolynomialRootFinder.realRoots(coefficients)
+            }
+            intervals = removing(PolynomialRootFinder.sortedDistinct(exclusions), from: intervals)
+            steps.append(
+                SolutionStep(
+                    l("Получили верное равенство", "We get a true statement"),
+                    l(
+                        "Равенство выполняется при всех \(x), при которых определён корень: \(fmt.expr(radicand)) ≥ 0.",
+                        "The equality holds for every \(x) for which the root is defined: \(fmt.expr(radicand)) ≥ 0.")))
+            return intervalOutcome(
+                kind: kind, intervals: intervals, variable: x, approximate: exclusions.contains { !$0.isExact }, steps: steps,
+                explanation: l(
+                    "После упрощения корень сокращается, остаётся верное равенство. Ответ — область определения уравнения.",
+                    "After simplification the root cancels and a true statement remains. The answer is the domain of the equation."))
+        }
+
+        // Q·√A = −P  ⇒  Q²·A = P².
+        let squaredLeft = try (try q * q) * a
+        let squaredRight = try p * p
+        let squared = try squaredLeft - squaredRight
+        guard Set(squared.variables).isSubset(of: [x]) else { return nil }
+        let coefficients = squared.coefficients(in: x) ?? [squared.constantTerm]
+        guard !UnivariatePolynomial.isZero(coefficients) else { return nil }
+        steps.append(
+            SolutionStep(
+                l("Уединим корень и возведём обе части в квадрат", "Isolate the root and square both sides"),
+                l(
+                    "После возведения в квадрат могут появиться посторонние корни — в конце проверим каждый корень подстановкой.",
+                    "Squaring may introduce extraneous roots — we will check each root by substitution at the end."),
+                formula: "\(fmt.polynomial(squaredLeft)) = \(fmt.polynomial(squaredRight))"))
+
+        var formulas: [String] = []
+        var approximate = false
+        var candidates: [RootValue] = []
+        switch UnivariatePolynomial.degree(coefficients) {
+        case 0:
+            candidates = []
+        case 1:
+            let c = UnivariatePolynomial.trimmed(coefficients)
+            let root = try c[0].negated / c[1]
+            candidates = [.rational(root)]
+            steps.append(SolutionStep(l("Решим линейное уравнение", "Solve the linear equation"), formula: "\(x) = \(fmt.rationalWithApproximation(root))"))
+        default:
+            steps.append(
+                SolutionStep(
+                    l("Перенесём всё в одну часть", "Move everything to one side"),
+                    formula: "\(fmt.polynomial(Polynomial(coefficients: coefficients, variable: x))) = 0"))
+            candidates = try polynomialRootsWithSteps(coefficients, variable: x, steps: &steps, formulas: &formulas, approximate: &approximate)
+        }
+        return finish(
+            kind: kind, roots: candidates, lhs: lhs, rhs: rhs, variable: x, steps: steps, formulas: formulas,
+            approximate: approximate, explanation: explanation)
+    }
+
+    /// Убирает точки из объединения промежутков.
+    private func removing(_ points: [RootValue], from intervals: [SolutionInterval]) -> [SolutionInterval] {
+        var result = intervals
+        for point in points {
+            let value = point.preciseDouble
+            var next: [SolutionInterval] = []
+            for interval in result {
+                let lower = interval.lower?.preciseDouble ?? -Double.infinity
+                let upper = interval.upper?.preciseDouble ?? Double.infinity
+                if interval.isPoint, abs(lower - value) <= 1e-12 * max(1, abs(value)) { continue }
+                if value > lower, value < upper {
+                    next.append(SolutionInterval(lower: interval.lower, upper: point, lowerClosed: interval.lowerClosed, upperClosed: false))
+                    next.append(SolutionInterval(lower: point, upper: interval.upper, lowerClosed: false, upperClosed: interval.upperClosed))
+                } else {
+                    var copy = interval
+                    if value == lower { copy.lowerClosed = false }
+                    if value == upper { copy.upperClosed = false }
+                    next.append(copy)
+                }
+            }
+            result = next
+        }
+        return result
+    }
+
     // MARK: - Numeric fallback
+
+    /// Больше корней численный ответ не перечисляет — честно отказываемся (AUD-02).
+    private static let maxNumericRoots = 20
 
     private func solveNumerically(lhs: Expr, rhs: Expr, variable x: String, original: String) throws -> EquationOutcome {
         let difference = Expr.sub(lhs, rhs)
@@ -629,6 +872,34 @@ struct EquationSolver: Sendable {
         }
         let f: (Double) -> Double = { [evaluator] value in evaluator.numeric(difference, variable: x, at: value) }
 
+        // Тождество (например, sin²x + cos²x = 1): равенство выполняется во всех пробных точках.
+        if let identity = numericIdentity(lhs: lhs, rhs: rhs, variable: x) {
+            let steps = [
+                SolutionStep(l("Запишем уравнение", "Write the equation"), formula: original),
+                SolutionStep(
+                    l("Равенство выполняется при любом \(x)", "The equality holds for every \(x)"),
+                    l(
+                        "Подставили \(identity.checked) разных значений \(x): левая и правая части совпадают во всех. Это тождество.",
+                        "We substituted \(identity.checked) different values of \(x): both sides agree every time. This is an identity.")),
+            ]
+            return EquationOutcome(
+                kindTitle: l("Тождество", "Identity"),
+                set: identity.everywhere ? .all : .roots([]),
+                answer: identity.everywhere
+                    ? l("\(x) — любое число", "\(x) is any number")
+                    : l("\(x) — любое число из области определения", "\(x) is any number in the domain"),
+                explanation: l(
+                    "Левая и правая части совпадают при всех проверенных значениях, поэтому уравнению удовлетворяет любое допустимое значение.",
+                    "Both sides coincide for all values tested, so any admissible value satisfies the equation."),
+                steps: steps, formulas: [],
+                notes: [
+                    l(
+                        "Тождество установлено численной проверкой, а не преобразованием, поэтому ответ помечен как приближённый.",
+                        "The identity was established by numeric checks rather than by transformation, so the answer is marked approximate.")
+                ],
+                isApproximate: true)
+        }
+
         // Периодична ли функция с периодом 2π? Тогда ищем корни на одном периоде.
         let twoPi = 2 * Double.pi
         let periodic =
@@ -639,13 +910,27 @@ struct EquationSolver: Sendable {
                 return a.isNaN && b.isNaN || abs(a - b) <= 1e-9 * max(1, abs(a))
             }
 
-        let numericRoots = periodic ? NumericRootFinder.roots(of: f, from: 0, to: twoPi, steps: 12_566, includeEnd: false) : NumericRootFinder.roots(of: f)
+        let search =
+            periodic
+            ? NumericRootFinder.search(
+                of: f, grid: NumericRootFinder.uniformGrid(from: 0, to: twoPi, steps: 12_566), limit: Self.maxNumericRoots + 1)
+            : NumericRootFinder.search(of: f, grid: NumericRootFinder.wideGrid(), limit: Self.maxNumericRoots)
+        let tooMany = l(
+            "Уравнение выполняется на целых промежутках или имеет слишком много корней (больше \(Self.maxNumericRoots)) — перечислить их численно нельзя, а точно описать такое множество решений локальный движок не умеет.",
+            "The equation holds on whole intervals or has too many roots (more than \(Self.maxNumericRoots)) — they cannot be listed numerically, and the local engine cannot describe such a solution set exactly."
+        )
+        guard !search.hasZeroRun else { throw MathError.unsupported(detail: tooMany) }
+        let numericRoots = periodic ? search.roots.filter { $0 < twoPi - 1e-9 } : search.roots
+        guard numericRoots.count <= Self.maxNumericRoots else { throw MathError.unsupported(detail: tooMany) }
+
         var roots: [RootValue] = []
         for value in numericRoots {
             roots.append(refine(value, lhs: lhs, rhs: rhs, variable: x, allowPi: difference.containsTrigonometry))
         }
         roots = PolynomialRootFinder.sortedDistinct(roots)
-        let approximate = roots.contains { !$0.isExact }
+        // Вне периодического случая численный поиск не доказывает, что найдены все корни:
+        // метка не выше «приближённо» (AUD-03).
+        let approximate = !periodic || roots.contains { !$0.isExact }
 
         var steps: [SolutionStep] = [SolutionStep(l("Запишем уравнение", "Write the equation"), formula: original)]
         steps.append(
@@ -656,6 +941,7 @@ struct EquationSolver: Sendable {
                     "Move everything to the left: f(\(x)) = \(fmt.expr(difference)). The roots are the points where f(\(x)) = 0. We find them numerically: locate intervals where f changes sign and refine each root by bisection."
                 )))
 
+        let range = l("[−10¹²; 10¹²]", "[−10¹²; 10¹²]")
         var notes: [String] = []
         if periodic {
             notes.append(
@@ -665,8 +951,9 @@ struct EquationSolver: Sendable {
         } else {
             notes.append(
                 l(
-                    "Корни искались численно на отрезке [−1000; 1000]. Корни вне этого отрезка, если они есть, не показаны.",
-                    "Roots were searched numerically on [−1000; 1000]. Roots outside this interval, if any, are not shown."))
+                    "Корни найдены численно на промежутке \(range) и проверены подстановкой. Численный поиск не гарантирует, что найдены все корни: корни вне промежутка или очень близкие друг к другу могли быть пропущены.",
+                    "The roots were found numerically on \(range) and checked by substitution. A numeric search does not guarantee that all roots are found: roots outside the interval or very close to each other may be missed."
+                ))
         }
 
         let suffix = periodic ? " + 2πn, n ∈ ℤ" : ""
@@ -678,16 +965,55 @@ struct EquationSolver: Sendable {
             explanation: l(
                 "Для такого уравнения нет общей школьной формулы, поэтому корни найдены численным методом и проверены подстановкой.",
                 "There is no general school formula for this equation, so the roots are found numerically and verified by substitution."),
-            rootSuffix: suffix)
+            rootSuffix: suffix,
+            emptyAnswer: periodic
+                ? nil
+                : l("Корней не найдено (численный поиск на \(range))", "No roots found (numeric search on \(range))"))
         outcome.notes += notes
-        if roots.isEmpty {
-            outcome.answer =
-                periodic
-                ? l("Действительных корней нет", "No real roots")
-                : l("На отрезке [−1000; 1000] корней не найдено", "No roots found on [−1000; 1000]")
-            outcome.isApproximate = !periodic
-        }
         return outcome
+    }
+
+    /// Численная проверка тождества: обе части совпадают во всех пробных точках, где определены.
+    private func numericIdentity(lhs: Expr, rhs: Expr, variable x: String) -> (everywhere: Bool, checked: Int)? {
+        let magnitudes: [Double] = [0.1234, 0.5678, 1.3579, 2.4681, 3.7071, 5.5513, 7.7713, 11.317, 17.913, 29.137, 47.311, 99.917, 151.73, 333.37, 777.71, 1234.57]
+        let samples = magnitudes + magnitudes.map { -$0 }
+        var defined = 0
+        for sample in samples {
+            let left = evaluator.numeric(lhs, variable: x, at: sample)
+            let right = evaluator.numeric(rhs, variable: x, at: sample)
+            guard left.isFinite, right.isFinite else { continue }
+            guard abs(left - right) <= 1e-9 * max(1, abs(left), abs(right)) else { return nil }
+            defined += 1
+        }
+        guard defined >= 12 else { return nil }
+        // «Любое число» — только если выражение определено на всей прямой по построению:
+        // у tg·ctg = 1 все пробные точки допустимы, но x = πn/2 — нет.
+        let everywhere = defined == samples.count && isDefinedEverywhere(lhs) && isDefinedEverywhere(rhs)
+        return (everywhere, defined)
+    }
+
+    /// Выражение без делений на переменную, корней, логарифмов, tg/ctg и т. п.
+    private func isDefinedEverywhere(_ expr: Expr) -> Bool {
+        if expr.isConstant { return true }
+        switch expr {
+        case .num, .real, .sym, .const: return true
+        case .neg(let inner): return isDefinedEverywhere(inner)
+        case .bin(let op, let a, let b):
+            switch op {
+            case .add, .sub, .mul: return isDefinedEverywhere(a) && isDefinedEverywhere(b)
+            case .div: return b.isConstant && isDefinedEverywhere(a)
+            case .pow:
+                if b.isConstant, let exponent = try? evaluator.evaluate(b).rational, exponent.isInteger, !exponent.isNegative {
+                    return isDefinedEverywhere(a)
+                }
+                // a^x с положительным числовым основанием.
+                if a.isConstant, let base = try? evaluator.evaluate(a), base.double > 0 { return isDefinedEverywhere(b) }
+                return false
+            }
+        case .fn(let function, let args):
+            guard [.sin, .cos, .abs, .atan, .acot, .cbrt].contains(function) else { return false }
+            return args.allSatisfy(isDefinedEverywhere)
+        }
     }
 
     /// Пытаемся превратить численный корень в точный и строго проверить его подстановкой.
@@ -719,49 +1045,98 @@ struct EquationSolver: Sendable {
             isApproximate: false)
     }
 
+    /// Результат проверки подстановкой.
+    private enum CheckVerdict {
+        case holds(exact: Bool, left: MathValue?, right: MathValue?)
+        case fails
+        case undefined
+    }
+
+    /// Проверка корня подстановкой в исходное уравнение. Рациональные корни и корни вида p + q√n
+    /// проверяются точно, остальные — с допуском относительно величины слагаемых (AUD-04).
+    private func check(_ root: RootValue, lhs: Expr, rhs: Expr, variable x: String, difference: RationalFunction?) -> CheckVerdict {
+        if case .surd = root, let point = QuadraticSurdNumber(root) {
+            let left = ExactSurdEvaluator.evaluate(lhs, variable: x, at: point)
+            let right = ExactSurdEvaluator.evaluate(rhs, variable: x, at: point)
+            switch (left, right) {
+            case (.undefined, _), (_, .undefined):
+                return .undefined
+            case (.value(let a), .value(let b)):
+                return a == b ? .holds(exact: true, left: nil, right: nil) : .fails
+            default:
+                break
+            }
+        }
+        let value: MathValue
+        switch root {
+        case .rational(let r): value = .exact(r)
+        case .piMultiple(let r): value = .piMultiple(r)
+        default: value = .approx(root.preciseDouble)
+        }
+        guard let left = try? evaluator.evaluate(lhs, [x: value]), let right = try? evaluator.evaluate(rhs, [x: value]) else {
+            return .undefined
+        }
+        if case .rational = root, left.isExact, right.isExact {
+            return left == right ? .holds(exact: true, left: left, right: right) : .fails
+        }
+        let scale = max(1, abs(left.double), abs(right.double))
+        if abs(left.double - right.double) <= 1e-6 * scale {
+            return .holds(exact: left.isExact && right.isExact && left == right, left: left, right: right)
+        }
+        // Многочлен с большими коэффициентами: невязку сравниваем с суммой модулей слагаемых.
+        if let difference, let numerator = difference.numerator.coefficients(in: x) {
+            let point = root.preciseDouble
+            var residual = 0.0
+            var magnitude = 0.0
+            for coefficient in numerator.reversed() {
+                residual = residual * point + coefficient.doubleValue
+                magnitude = magnitude * abs(point) + abs(coefficient.doubleValue)
+            }
+            if residual.isFinite, magnitude.isFinite, abs(residual) <= 1e-9 * magnitude {
+                return .holds(exact: false, left: left, right: right)
+            }
+        }
+        return .fails
+    }
+
     /// Проверка подстановкой, формирование ответа.
     private func finish(
         kind: String, roots unsorted: [RootValue], lhs: Expr, rhs: Expr, variable x: String, steps initialSteps: [SolutionStep],
-        formulas: [String], approximate: Bool, explanation: String, rootSuffix: String = ""
+        formulas: [String], approximate: Bool, explanation: String, rootSuffix: String = "", emptyAnswer: String? = nil
     ) -> EquationOutcome {
         var steps = initialSteps
         var notes: [String] = []
         var roots: [RootValue] = []
+        let difference = (try? Algebra.rationalFunction(.sub(lhs, rhs))) ?? nil
 
         // Каждый корень проверяем подстановкой в исходное уравнение.
         var checks: [String] = []
         for root in PolynomialRootFinder.sortedDistinct(unsorted) {
-            let value: MathValue
-            switch root {
-            case .rational(let r): value = .exact(r)
-            case .piMultiple(let r): value = .piMultiple(r)
-            default: value = .approx(root.double)
-            }
-            guard let left = try? evaluator.evaluate(lhs, [x: value]), let right = try? evaluator.evaluate(rhs, [x: value]) else {
+            switch check(root, lhs: lhs, rhs: rhs, variable: x, difference: difference) {
+            case .undefined:
                 notes.append(
                     l(
                         "Значение \(x) = \(fmt.root(root)) не входит в область определения исходного уравнения и отброшено.",
                         "The value \(x) = \(fmt.root(root)) is outside the domain of the original equation and was discarded."))
-                continue
-            }
-            let scale = max(1, abs(left.double), abs(right.double))
-            guard abs(left.double - right.double) <= 1e-6 * scale else {
+            case .fails:
                 notes.append(
                     l(
-                        "Значение \(x) ≈ \(fmt.approx(root.double)) не прошло проверку подстановкой и отброшено.",
-                        "The value \(x) ≈ \(fmt.approx(root.double)) failed the substitution check and was discarded."))
-                continue
-            }
-            roots.append(root)
-            if left.isExact, right.isExact, left == right {
-                checks.append("\(x) = \(fmt.root(root)): \(fmt.value(left)) = \(fmt.value(right)) ✓")
-            } else {
-                // Погрешность округления (порядка 10⁻¹⁶) не показываем как «значение».
-                func clean(_ value: Double) -> Double { abs(value) < 1e-9 ? 0 : value }
-                let leftText = fmt.approx(clean(left.double), significant: 5)
-                let rightText = fmt.approx(clean(right.double), significant: 5)
-                let prefix = root.isExact ? "\(x) = \(fmt.root(root))" : "\(x) ≈ \(fmt.approx(root.double))"
-                checks.append("\(prefix): \(leftText) ≈ \(rightText) ✓")
+                        "Значение \(x) ≈ \(fmt.approx(root.preciseDouble)) не прошло проверку подстановкой и отброшено.",
+                        "The value \(x) ≈ \(fmt.approx(root.preciseDouble)) failed the substitution check and was discarded."))
+            case .holds(let exact, let left, let right):
+                roots.append(root)
+                if exact, let left, let right {
+                    checks.append("\(x) = \(fmt.root(root)): \(fmt.value(left)) = \(fmt.value(right)) ✓")
+                } else if exact {
+                    checks.append(l("\(x) = \(fmt.root(root)): левая и правая части совпадают ✓", "\(x) = \(fmt.root(root)): both sides are equal ✓"))
+                } else if let left, let right {
+                    // Погрешность округления (порядка 10⁻¹⁶) не показываем как «значение».
+                    func clean(_ value: Double) -> Double { abs(value) < 1e-9 ? 0 : value }
+                    let leftText = fmt.approx(clean(left.double), significant: 5)
+                    let rightText = fmt.approx(clean(right.double), significant: 5)
+                    let prefix = root.isExact ? "\(x) = \(fmt.root(root))" : "\(x) ≈ \(fmt.approx(root.preciseDouble))"
+                    checks.append("\(prefix): \(leftText) ≈ \(rightText) ✓")
+                }
             }
         }
         if !checks.isEmpty, checks.count <= 6 {
@@ -777,7 +1152,7 @@ struct EquationSolver: Sendable {
         let isApproximate = approximate || roots.contains { !$0.isExact }
         let answer: String
         if roots.isEmpty {
-            answer = l("Действительных корней нет", "No real roots")
+            answer = emptyAnswer ?? l("Действительных корней нет", "No real roots")
         } else if roots.count == 1 {
             answer = "\(x) = \(rootAnswer(roots[0]))\(rootSuffix)"
         } else {
@@ -797,10 +1172,72 @@ struct EquationSolver: Sendable {
             isApproximate: isApproximate)
     }
 
+    // MARK: - Sets of solutions
+
+    /// Промежутки (−∞; p₁), (p₁; p₂), …, (pₖ; +∞) — прямая без точек.
+    private func complement(of points: [RootValue]) -> [SolutionInterval] {
+        var result: [SolutionInterval] = []
+        var lower: RootValue? = nil
+        for point in PolynomialRootFinder.sortedDistinct(points) {
+            result.append(SolutionInterval(lower: lower, upper: point, lowerClosed: false, upperClosed: false))
+            lower = point
+        }
+        result.append(SolutionInterval(lower: lower, upper: nil, lowerClosed: false, upperClosed: false))
+        return result
+    }
+
+    private func exclusionText(_ points: [RootValue], variable x: String) -> String {
+        points.isEmpty
+            ? l("ограничений нет", "no restrictions")
+            : points.map { "\(x) ≠ \(fmt.root($0))" }.joined(separator: "; ")
+    }
+
+    /// Точки, где обращается в ноль какой-нибудь знаменатель исходного уравнения
+    /// (в том числе «исчезающий» при упрощении, как в 1/(1/x)).
+    private func domainExclusions(_ lhs: Expr, _ rhs: Expr, variable x: String) -> [RootValue] {
+        PolynomialRootFinder.sortedDistinct(
+            PiecewiseAnalysis.divisorZeros(lhs, variable: x) + PiecewiseAnalysis.divisorZeros(rhs, variable: x))
+    }
+
+    /// Ответ для множества решений: «x — любое число, кроме …», «x ≥ 0, то есть …», список корней.
+    private func setAnswer(_ intervals: [SolutionInterval], variable x: String) -> String {
+        if intervals.isEmpty { return l("Действительных корней нет", "No real roots") }
+        if let excluded = PiecewiseAnalysis.excludedPoints(intervals) {
+            if excluded.isEmpty { return l("\(x) — любое число", "\(x) is any number") }
+            let listed = excluded.map { fmt.root($0) }.joined(separator: "; ")
+            return l("\(x) — любое число, кроме \(listed)", "\(x) is any number except \(listed)")
+        }
+        return InequalitySolver(lang: l.lang, formatter: fmt).answerText(intervals, variable: x)
+    }
+
+    private func intervalOutcome(
+        kind: String, intervals: [SolutionInterval], variable x: String, approximate: Bool, steps: [SolutionStep],
+        explanation: String, notes: [String] = []
+    ) -> EquationOutcome {
+        let set: EquationOutcome.SolutionSet
+        if intervals.isEmpty {
+            set = .none
+        } else if intervals.count == 1, intervals[0].lower == nil, intervals[0].upper == nil {
+            set = .all
+        } else {
+            set = .intervals(intervals)
+        }
+        return EquationOutcome(
+            kindTitle: kind, set: set, answer: setAnswer(intervals, variable: x), explanation: explanation, steps: steps,
+            formulas: [], notes: notes, isApproximate: approximate)
+    }
+
+    /// Корень с приближённым значением без потери точности (`fmt.rootWithApproximation` для радикалов
+    /// вычитает близкие числа).
+    private func rootWithApproximation(_ root: RootValue) -> String {
+        if case .surd(let s) = root { return fmt.surd(s) + " ≈ " + fmt.approx(s.preciseDouble) }
+        return fmt.rootWithApproximation(root)
+    }
+
     private func rootAnswer(_ root: RootValue) -> String {
         switch root {
         case .rational(let r): return fmt.rationalWithApproximation(r)
-        case .surd(let s): return fmt.surd(s) + " ≈ " + fmt.approx(s.double)
+        case .surd(let s): return fmt.surd(s) + " ≈ " + fmt.approx(s.preciseDouble)
         case .piMultiple(let r): return fmt.piMultiple(r)
         case .approx(let d): return "≈ " + fmt.approx(d)
         }
@@ -809,34 +1246,54 @@ struct EquationSolver: Sendable {
 
 /// Численный поиск корней произвольной функции одной переменной.
 enum NumericRootFinder {
-    /// Корни на отрезке [−1000; 1000]: плотная сетка около нуля и более редкая дальше.
-    static func roots(of f: (Double) -> Double) -> [Double] {
-        var grid: [Double] = []
-        var x = -1000.0
-        while x < -50 {
-            grid.append(x)
-            x += 0.25
-        }
-        for k in -5000...5000 {
-            grid.append(Double(k) / 100)
-        }
-        x = 50.25
+    struct Search {
+        var roots: [Double]
+        /// Функция равна нулю в нескольких соседних узлах подряд — равенство на целом промежутке.
+        var hasZeroRun: Bool
+    }
+
+    /// Сетка на [−10¹²; 10¹²]: шаг 0,01 около нуля, 0,25 до ±1000, дальше — геометрическая прогрессия
+    /// (шаг 1 %), чтобы не терять корни вроде |x − 1500| = 1000 или ln x = 10 (AUD-03).
+    static func wideGrid() -> [Double] {
+        var positive: [Double] = []
+        var x = 50.25
         while x <= 1000 {
-            grid.append(x)
+            positive.append(x)
             x += 0.25
         }
-        return roots(of: f, grid: grid)
+        x = 1000 * 1.01
+        while x <= 1e12 {
+            positive.append(x)
+            x *= 1.01
+        }
+        let center = (-5000...5000).map { Double($0) / 100 }
+        return positive.reversed().map { -$0 } + center + positive
+    }
+
+    static func uniformGrid(from start: Double, to end: Double, steps: Int) -> [Double] {
+        (0...steps).map { start + (end - start) * Double($0) / Double(steps) }
+    }
+
+    /// Корни на отрезке [−1000; 1000] и дальше (см. `wideGrid`).
+    static func roots(of f: (Double) -> Double) -> [Double] {
+        search(of: f, grid: wideGrid()).roots
     }
 
     static func roots(of f: (Double) -> Double, from start: Double, to end: Double, steps: Int, includeEnd: Bool) -> [Double] {
-        let grid = (0...steps).map { start + (end - start) * Double($0) / Double(steps) }
-        let found = roots(of: f, grid: grid)
+        let found = search(of: f, grid: uniformGrid(from: start, to: end, steps: steps)).roots
         return includeEnd ? found : found.filter { $0 < end - 1e-9 }
     }
 
     static func roots(of f: (Double) -> Double, grid: [Double]) -> [Double] {
+        search(of: f, grid: grid).roots
+    }
+
+    /// `limit` — после стольких корней (или промежутка из нулей) поиск прекращается: ответ всё равно не будет показан.
+    static func search(of f: (Double) -> Double, grid: [Double], limit: Int = .max) -> Search {
         let values = grid.map(f)
         var roots: [Double] = []
+        var zeroRun = 0
+        var hasZeroRun = false
 
         func add(_ root: Double) {
             if !roots.contains(where: { abs($0 - root) <= 1e-7 * max(1, abs(root)) }) {
@@ -845,12 +1302,19 @@ enum NumericRootFinder {
         }
 
         for index in 0..<grid.count {
+            if hasZeroRun || roots.count > limit { break }
             let fa = values[index]
-            guard fa.isFinite else { continue }
+            guard fa.isFinite else {
+                zeroRun = 0
+                continue
+            }
             if fa == 0 {
+                zeroRun += 1
+                if zeroRun >= 3 { hasZeroRun = true }
                 add(grid[index])
                 continue
             }
+            zeroRun = 0
             guard index + 1 < grid.count else { continue }
             let fb = values[index + 1]
             guard fb.isFinite else { continue }
@@ -907,6 +1371,6 @@ enum NumericRootFinder {
                 }
             }
         }
-        return roots.sorted()
+        return Search(roots: roots.sorted(), hasZeroRun: hasZeroRun)
     }
 }

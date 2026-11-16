@@ -141,9 +141,18 @@ struct SystemSolver: Sendable {
                 steps: steps, notes: [], isApproximate: false)
         }
         if pivotColumns.count < n {
+            var answer = l("Система имеет бесконечно много решений", "The system has infinitely many solutions")
+            if n == 2, pivotColumns.count == 1, let general = try generalSolution(rows[0], variables: variables) {
+                answer += ": " + general
+                steps.append(
+                    SolutionStep(
+                        l("Выразим одно неизвестное через другое", "Express one unknown through the other"),
+                        l("Второе уравнение — следствие первого, остаётся одно уравнение.", "The second equation follows from the first, so one equation remains."),
+                        formula: general))
+            }
             return SystemOutcome(
                 kindTitle: l("Система линейных уравнений", "System of linear equations"),
-                answer: l("Система имеет бесконечно много решений", "The system has infinitely many solutions"),
+                answer: answer,
                 explanation: l(
                     "Независимых уравнений меньше, чем неизвестных, поэтому одно из неизвестных можно выбрать произвольно.",
                     "There are fewer independent equations than unknowns, so one unknown can be chosen freely."),
@@ -159,6 +168,19 @@ struct SystemSolver: Sendable {
                 l("Находим неизвестные", "Find the unknowns"),
                 formula: variables.map { "\($0) = \(fmt.rationalWithApproximation(values[$0] ?? .zero))" }.joined(separator: "\n")))
         return try finishLinear(values, variables: variables, polynomials: polynomials, steps: steps)
+    }
+
+    /// Общее решение уравнения a·x + b·y = c: «y = −x + 2, где x — любое число».
+    private func generalSolution(_ row: Row, variables: [String]) throws -> String? {
+        let (x, y) = (variables[0], variables[1])
+        let (a, b, c) = (row.coefficients[0], row.coefficients[1], row.constant)
+        if !b.isZero {
+            let expressed = Polynomial(coefficients: [try c / b, try a.negated / b], variable: x)
+            return l("\(y) = \(fmt.polynomial(expressed)), где \(x) — любое число", "\(y) = \(fmt.polynomial(expressed)), where \(x) is any number")
+        }
+        guard !a.isZero else { return nil }
+        let value = try c / a
+        return l("\(x) = \(fmt.rational(value)), \(y) — любое число", "\(x) = \(fmt.rational(value)), \(y) is any number")
     }
 
     /// Метод сложения для системы 2×2. `nil` — если определитель равен нулю (разбирает общий метод).
@@ -366,11 +388,18 @@ struct SystemSolver: Sendable {
                 let result = try expression.evaluate([other: value])
                 expressedText = fmt.rationalWithApproximation(result)
                 pairs.append(pairText(variables, [other: fmt.rational(value), expressed: fmt.rational(result)]))
+            } else if case .surd(let surd) = root, let linear = expression.coefficients(in: other),
+                UnivariatePolynomial.degree(linear) <= 1,
+                let result = try? exactLinearImage(of: surd, coefficients: UnivariatePolynomial.trimmed(linear))
+            {
+                // Корень вида p + q√n: значение второго неизвестного тоже точное.
+                expressedText = fmt.root(result) + (result.isExact && result.rational == nil ? " ≈ " + fmt.approx(result.preciseDouble) : "")
+                pairs.append(pairText(variables, [other: fmt.surd(surd), expressed: fmt.root(result)]))
             } else {
                 approximate = approximate || !root.isExact
-                let result = expression.evaluate([other: root.double])
+                let result = expression.evaluate([other: root.preciseDouble])
                 expressedText = "≈ " + fmt.approx(result)
-                pairs.append(pairText(variables, [other: fmt.approx(root.double), expressed: fmt.approx(result)], approximate: true))
+                pairs.append(pairText(variables, [other: fmt.approx(root.preciseDouble), expressed: fmt.approx(result)], approximate: true))
             }
             backLines.append("\(other) = \(fmt.root(root)) ⇒ \(expressed) \(expressedText.hasPrefix("≈") ? "" : "= ")\(expressedText)")
         }
@@ -391,6 +420,15 @@ struct SystemSolver: Sendable {
                 "The substitution method: express one variable from one equation and substitute it into the other — an equation in one unknown remains."
             ),
             steps: steps, notes: notes, isApproximate: approximate)
+    }
+
+    /// α + β·(p + q√n) в точном виде.
+    private func exactLinearImage(of surd: Surd, coefficients: [Rational]) throws -> RootValue {
+        let alpha = coefficients[0]
+        let beta = coefficients.count > 1 ? coefficients[1] : .zero
+        return try Surd.make(
+            rationalPart: try alpha + (try beta * surd.rationalPart), coefficient: try beta * surd.coefficient,
+            sqrtOf: Rational(surd.radicand))
     }
 
     private func pairText(_ variables: [String], _ values: [String: String], approximate: Bool = false) -> String {
