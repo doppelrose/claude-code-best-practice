@@ -92,7 +92,18 @@ struct Surd: Sendable, Hashable {
     var radicand: Int
 
     var double: Double {
-        rationalPart.doubleValue + coefficient.doubleValue * Double(radicand).squareRoot()
+        let plain = rationalPart.doubleValue + coefficient.doubleValue * Double(radicand).squareRoot()
+        // p + q·√n при разных знаках p и q теряет точность из-за вычитания близких чисел:
+        // считаем через сопряжённое (p² − q²n) / (p − q·√n).
+        let p = rationalPart
+        let q = coefficient
+        guard !p.isZero, !q.isZero, p.signum != q.signum,
+            let numerator = try? (try p * p) - (try (try q * q) * Rational(radicand))
+        else { return plain }
+        let denominator = p.doubleValue - q.doubleValue * Double(radicand).squareRoot()
+        guard denominator != 0 else { return plain }
+        let value = numerator.doubleValue / denominator
+        return value.isFinite ? value : plain
     }
 
     /// `p + q·√value` с вынесением множителя из-под корня. Возвращает рациональное число,
