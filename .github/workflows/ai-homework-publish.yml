@@ -1,0 +1,77 @@
+name: AI Homework publish external build
+
+# Публикует в источник SideStore .ipa, собранный вне GitHub (Codemagic), когда на GitHub нет
+# свободных macOS-раннеров. Работает на Linux: скачивает файл, проверяет его и обновляет
+# релиз ai-homework-latest (AIHomework.ipa + source.json) — так же, как основной workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      ipa_url:
+        description: 'Публичная ссылка на AIHomework.ipa из Codemagic (https://…codemagic.io/…)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish AIHomework.ipa for SideStore
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # обновление релиза ai-homework-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify the .ipa
+        working-directory: ai-homework-ios
+        env:
+          IPA_URL: ${{ inputs.ipa_url }}
+        run: |
+          set -euo pipefail
+          # Принимаем только ссылки Codemagic по https.
+          python3 - <<'PY'
+          import os, sys, urllib.parse
+          url = urllib.parse.urlparse(os.environ["IPA_URL"])
+          host = url.hostname or ""
+          if url.scheme != "https" or not (host == "codemagic.io" or host.endswith(".codemagic.io")):
+              sys.exit(f"Only https links on codemagic.io are accepted, got host: {host!r}")
+          PY
+          curl -fsSL --max-filesize 300000000 "$IPA_URL" -o AIHomework.ipa
+          ls -lh AIHomework.ipa
+          # Проверяем, что это архив приложения AI Homework, и читаем его версию.
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import plistlib, sys, zipfile
+          with zipfile.ZipFile("AIHomework.ipa") as z:
+              info = plistlib.loads(z.read("Payload/AIHomework.app/Info.plist"))
+          if info.get("CFBundleExecutable") != "AIHomework":
+              sys.exit("Unexpected app in the archive")
+          version = info["CFBundleShortVersionString"]
+          build = info["CFBundleVersion"]
+          print(f"VERSION={version}")
+          print(f"BUILD={build}")
+          PY
+      - name: Publish for SideStore
+        working-directory: ai-homework-ios
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "Publishing $VERSION ($BUILD)"
+          TAG=ai-homework-latest
+          BASE="https://github.com/$REPO/releases/download/$TAG"
+          ICON="https://raw.githubusercontent.com/$REPO/${{ github.sha }}/ai-homework-ios/AIHomework/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+          python3 scripts/make_sidestore_source.py \
+            --ipa AIHomework.ipa --version "$VERSION" --build "$BUILD" \
+            --download-url "$BASE/AIHomework.ipa" --icon-url "$ICON" \
+            --source-url "$BASE/source.json" --out source.json
+          NOTES="Сборка $VERSION для iPhone (не подписана, собрана в Codemagic). Установка через SideStore — см. ai-homework-ios/README.md. Источник SideStore: $BASE/source.json"
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" AIHomework.ipa source.json --clobber --repo "$REPO"
+            gh release edit "$TAG" --notes "$NOTES" --repo "$REPO"
+          else
+            gh release create "$TAG" AIHomework.ipa source.json --repo "$REPO" \
+              --target "${{ github.sha }}" --prerelease \
+              --title "AI Homework — последняя сборка" --notes "$NOTES"
+          fi
+          echo "SideStore source: $BASE/source.json"
